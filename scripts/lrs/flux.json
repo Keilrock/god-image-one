@@ -1,5 +1,5 @@
 {
-    "default": {},
+    "default": {"max_train_steps":1000,"network_dim":32,"network_alpha":32,"unet_lr":0.00005,"text_encoder_lr":[0.000005,0.000005],"lr_scheduler":"cosine","optimizer_type":"adamw","optimizer_args":["weight_decay=0.01","betas=(0.9,0.99)","eps=1e-08"]},
     "data": {
         "6445f395eb2cbcb40cec7bda29dd19c6ee0beb4660ee5fbc2556ed35920cd6b2": {},
         "a6d3e66c487e7e7fa7ce6b5b1753a39efe2c0d2eca5a9e4752703227dd408b69": {
