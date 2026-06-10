@@ -41,6 +41,10 @@ CALIB_OVERRIDES = {
     "save_every_n_epochs": 4,    # staged checkpoints at 4,8,...,36 (separate files)
     "sample_every_n_epochs": 4,  # pilot-only: 1 sample grid per checkpoint for visual check
     # save_last_n_epochs intentionally left UNSET (None) -> no pruning, keep all 10
+    # base template sets async_upload=true + empty huggingface_repo_id -> every
+    # checkpoint save errors on an empty repo push. Calibration uploads separately
+    # in PHASE 5, so disable the in-trainer HF push entirely.
+    "async_upload": False,
 }
 
 # Pilot-only sample prompts (subject trigger from the dataset = "Susie")
@@ -53,6 +57,45 @@ SAMPLE_PROMPTS = [
 
 def hash_model(model: str) -> str:
     return hashlib.sha256(model.encode("utf-8")).hexdigest()
+
+
+# Diffusers component sub-folders. A weights file living inside one of these is a
+# single component (e.g. text_encoder/model.safetensors), NOT a full SDXL model.
+_COMPONENT_DIRS = {
+    "unet", "vae", "text_encoder", "text_encoder_2",
+    "tokenizer", "tokenizer_2", "scheduler",
+}
+
+
+def validate_model_path(model_path: str) -> None:
+    """Reject the class of bug that produced an all-UNet-missing load.
+
+    Valid pretrained_model_name_or_path is either:
+      * a Diffusers FOLDER (dir containing model_index.json) — sd-scripts loads it
+        via StableDiffusionXLPipeline.from_pretrained and converts the UNet, or
+      * a full single-file SDXL checkpoint (.safetensors / .ckpt).
+
+    A weights file nested in a component dir (text_encoder/, unet/, ...) is NOT a
+    full model and silently yields a broken UNet. Caught here by name, so it fails
+    even during CPU --preview where the file may be absent.
+    """
+    parent = os.path.basename(os.path.dirname(model_path.rstrip("/")))
+    if parent in _COMPONENT_DIRS:
+        raise SystemExit(
+            f"[fatal] model_path points at a Diffusers component ('{parent}/'), "
+            f"not a full model: {model_path}\n"
+            f"        Pass the Diffusers folder (dir with model_index.json) "
+            f"or a full single-file SDXL .safetensors."
+        )
+    if os.path.isdir(model_path):
+        if not os.path.isfile(os.path.join(model_path, "model_index.json")):
+            raise SystemExit(
+                f"[fatal] Diffusers folder is missing model_index.json: {model_path}"
+            )
+    elif os.path.exists(model_path) and not model_path.endswith((".safetensors", ".ckpt")):
+        raise SystemExit(
+            f"[fatal] model_path is neither a Diffusers folder nor a checkpoint file: {model_path}"
+        )
 
 
 def build_config(model_path: str, train_data_dir: str, output_dir: str,
@@ -70,6 +113,7 @@ def build_config(model_path: str, train_data_dir: str, output_dir: str,
         config[k] = v
 
     # 3) paths + network dims, exactly like create_config() does
+    validate_model_path(model_path)
     config["pretrained_model_name_or_path"] = model_path
     config["train_data_dir"] = train_data_dir
     config["output_dir"] = output_dir
@@ -103,7 +147,10 @@ def main():
     ap.add_argument("--preview", action="store_true", help="print the final toml to stdout")
     args = ap.parse_args()
 
-    sample_prompts_path = os.path.join(os.path.dirname(args.out), "sample_prompts.txt")
+    # ABSOLUTE so it resolves regardless of the trainer's cwd (the container runs
+    # with cwd=scripts/sd-script; a relative path silently yields zero samples).
+    out_abs = os.path.abspath(args.out)
+    sample_prompts_path = os.path.join(os.path.dirname(out_abs), "sample_prompts.txt")
     with open(sample_prompts_path, "w") as f:
         f.write("\n".join(SAMPLE_PROMPTS) + "\n")
 

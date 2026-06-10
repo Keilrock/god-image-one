@@ -46,7 +46,7 @@ echo "==== PHASE 0: preflight ===="
 command -v docker >/dev/null || { echo "docker missing"; exit 1; }
 docker info 2>/dev/null | grep -qi nvidia || echo "WARN: nvidia runtime not detected in 'docker info' — GPU may be unavailable"
 python3 -c "import huggingface_hub" || { echo "pip install huggingface_hub"; exit 1; }
-huggingface-cli whoami >/dev/null 2>&1 || { echo "Run: huggingface-cli login"; exit 1; }
+hf auth whoami >/dev/null 2>&1 || { echo "Run: huggingface-cli login"; exit 1; }
 mkdir -p "$OUT_DIR" "$MODEL_DIR" "$RESULTS_DIR/aplp"
 
 echo "==== PHASE 1: stage dataset (11 train / 3 test, deterministic) ===="
@@ -55,27 +55,33 @@ test "$(ls "$TRAIN_DATA_DIR/5_lora style/"*.png | wc -l)" -eq 11
 test "$(ls "$TEST_DIR/"*.png | wc -l)" -eq 3
 
 echo "==== PHASE 2: download base model ($BASE_MODEL) ===="
-# nova-anime ships a single SDXL .safetensors; grab it locally for sd-scripts.
-python3 - "$BASE_MODEL" "$MODEL_DIR" <<'PY'
-import sys, os
-from huggingface_hub import HfApi, hf_hub_download
+# nova-anime is published as a Diffusers FOLDER (model_index.json + unet/ vae/
+# text_encoder*/ ...), NOT a single-file SDXL .safetensors. sd-scripts'
+# sdxl_train_network loads a Diffusers directory natively: _load_target_model()
+# branches on os.path.isfile(path) — a directory triggers
+# StableDiffusionXLPipeline.from_pretrained() and converts the UNet to original
+# SDXL internally. So we fetch the whole snapshot and point the trainer at the
+# folder (an earlier single-file heuristic grabbed text_encoder/ only -> all
+# UNet keys missing at load).
+MODEL_PATH="$MODEL_DIR/diffusers"
+python3 - "$BASE_MODEL" "$MODEL_PATH" <<'PY'
+import os, sys
+from huggingface_hub import snapshot_download
 repo, dst = sys.argv[1], sys.argv[2]
-api = HfApi()
-sfs = [f for f in api.list_repo_files(repo) if f.endswith(".safetensors")]
-assert sfs, f"no safetensors in {repo}"
-# pick the largest (the full checkpoint)
-meta = {s.path: (s.size or 0) for s in api.list_repo_tree(repo) if getattr(s, "size", None)}
-target = max(sfs, key=lambda f: meta.get(f, 0))
-p = hf_hub_download(repo, target, local_dir=dst)
+p = snapshot_download(
+    repo_id=repo,
+    local_dir=dst,
+    cache_dir=os.environ.get("HF_HUB_CACHE") or None,  # reuse existing blob cache
+    allow_patterns=[
+        "model_index.json", "scheduler/*", "unet/*", "vae/*",
+        "text_encoder/*", "text_encoder_2/*", "tokenizer/*", "tokenizer_2/*",
+    ],
+)
 print(p)
 PY
-MODEL_PATH="$(python3 - "$MODEL_DIR" <<'PY'
-import sys, os, glob
-files = glob.glob(os.path.join(sys.argv[1], "**", "*.safetensors"), recursive=True)
-print(max(files, key=os.path.getsize))
-PY
-)"
-echo "base model: $MODEL_PATH"
+test -f "$MODEL_PATH/model_index.json" || { echo "model_index.json missing in $MODEL_PATH"; exit 1; }
+test -f "$MODEL_PATH/unet/diffusion_pytorch_model.safetensors" || { echo "UNet weights missing in $MODEL_PATH/unet"; exit 1; }
+echo "base model (Diffusers folder): $MODEL_PATH"
 
 echo "==== PHASE 3: generate calibration config ===="
 python3 "$CALIB/generate_calib_config.py" \
