@@ -1,0 +1,28 @@
+{
+  "task_id": "95f68a11-3b13-488f-8ed5-42fec8865160",
+  "base_model": "John6666/nova-anime-xl-pony-v5-sdxl",
+  "bucket": "s",
+  "seed": 42,
+  "n_train": 11,
+  "n_test": 3,
+  "train_bases": [
+    "0002",
+    "0003",
+    "0004",
+    "0005",
+    "0006",
+    "0007",
+    "0008",
+    "0009",
+    "0011",
+    "0012",
+    "0013"
+  ],
+  "test_bases": [
+    "0000",
+    "0001",
+    "0010"
+  ],
+  "train_dir": "/root/god-image-work/calibration/data/95f68a11-3b13-488f-8ed5-42fec8865160/img/5_lora style",
+  "test_dir": "/root/god-image-work/calibration/data/95f68a11-3b13-488f-8ed5-42fec8865160/test"
+}
