@@ -47,6 +47,16 @@ def merge_model_config(default_config: dict, model_config: dict) -> dict:
 
     return merged if merged else None
 
+def compute_aitoolkit_steps(dataset_size: int,
+                            per_image: int = 100,
+                            min_steps: int = 600,
+                            max_steps: int = 2000) -> int:
+    """Step proporsional ke jumlah gambar (anti-overfit untuk dataset kecil)."""
+    if dataset_size <= 0:
+        return min_steps
+    steps = dataset_size * per_image
+    return max(min_steps, min(steps, max_steps))
+
 def count_images_in_directory(directory_path: str) -> int:
     image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
     count = 0
@@ -134,6 +144,23 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
 
                 if trigger_word:
                     process['trigger_word'] = trigger_word
+        
+        
+# --- Jalur B: size-aware step untuk ai-toolkit (Z-Image/Qwen) ---
+        ait_dataset_size = 0
+        if os.path.exists(train_data_dir):
+            ait_dataset_size = count_images_in_directory(train_data_dir)
+        if ait_dataset_size > 0 and 'config' in config and 'process' in config['config']:
+            target_steps = compute_aitoolkit_steps(ait_dataset_size)
+            for process in config['config']['process']:
+                if 'train' in process and isinstance(process['train'], dict):
+                    process['train']['steps'] = target_steps
+                if 'save' in process and isinstance(process['save'], dict):
+                    se = process['save'].get('save_every', 250)
+                    if se > target_steps:
+                        process['save']['save_every'] = max(target_steps // 4, 1)
+            print(f"[B] ai-toolkit size-aware: {ait_dataset_size} imgs -> {target_steps} steps", flush=True)
+        # --- akhir Jalur B ---
         
         config_path = os.path.join(train_cst.IMAGE_CONTAINER_CONFIG_SAVE_PATH, f"{task_id}.yaml")
         save_config(config, config_path)

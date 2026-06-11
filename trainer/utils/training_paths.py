@@ -23,6 +23,30 @@ def get_image_base_model_path(model_id: str) -> str:
 def get_image_training_images_dir(task_id: str) -> str:
     return str(Path(train_cst.IMAGE_CONTAINER_IMAGES_PATH) / task_id / "img")
 
+def _detect_style_from_captions(train_data_dir: str) -> bool:
+    """Deteksi style dari caption .txt. Return False jika ragu."""
+    candidates = [
+        os.path.join(train_data_dir, "5_lora style"),
+        train_data_dir,
+    ]
+    prompts = []
+    for d in candidates:
+        if not os.path.isdir(d):
+            continue
+        for file in os.listdir(d):
+            if file.endswith(".txt"):
+                try:
+                    with open(os.path.join(d, file), "r") as f:
+                        prompts.append(f.read().strip())
+                except Exception:
+                    pass
+        if prompts:
+            break
+    if not prompts:
+        return False
+    styles = detect_styles_in_prompts(prompts)
+    return bool(styles)
+
 def get_image_training_config_template_path(model_type: str, train_data_dir: str) -> tuple[str, bool]:
     model_type = model_type.lower()
     if model_type == ImageModelType.SDXL.value:
@@ -44,10 +68,12 @@ def get_image_training_config_template_path(model_type: str, train_data_dir: str
 
     elif model_type == ImageModelType.FLUX.value:
         return str(Path(train_cst.IMAGE_CONTAINER_CONFIG_TEMPLATE_PATH) / "base_diffusion_flux.toml"), False
-    elif model_type == ImageModelType.Z_IMAGE.value:
-        return str(Path(train_cst.IMAGE_CONTAINER_CONFIG_TEMPLATE_PATH) / "base_diffusion_zimage.yaml"), False
-    elif model_type == ImageModelType.QWEN_IMAGE.value:
-        return str(Path(train_cst.IMAGE_CONTAINER_CONFIG_TEMPLATE_PATH) / "base_diffusion_qwen_image.yaml"), False
+    elif model_type in (ImageModelType.Z_IMAGE.value, ImageModelType.QWEN_IMAGE.value):
+        is_style = _detect_style_from_captions(train_data_dir)
+        template = ("base_diffusion_zimage.yaml"
+                    if model_type == ImageModelType.Z_IMAGE.value
+                    else "base_diffusion_qwen_image.yaml")
+        return str(Path(train_cst.IMAGE_CONTAINER_CONFIG_TEMPLATE_PATH) / template), is_style
 
 def get_image_training_zip_save_path(task_id: str) -> str:
     return str(Path(train_cst.CACHE_DATASETS_DIR) / f"{task_id}_tourn.zip")
