@@ -146,7 +146,7 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
                     process['trigger_word'] = trigger_word
         
         
-# --- Jalur B: size-aware step untuk ai-toolkit (Z-Image/Qwen) ---
+        # --- Jalur B: size-aware step untuk ai-toolkit (Z-Image/Qwen) ---
         ait_dataset_size = 0
         if os.path.exists(train_data_dir):
             ait_dataset_size = count_images_in_directory(train_data_dir)
