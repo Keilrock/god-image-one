@@ -48,10 +48,12 @@ def merge_model_config(default_config: dict, model_config: dict) -> dict:
     return merged if merged else None
 
 def compute_aitoolkit_steps(dataset_size: int,
-                            per_image: int = 100,
-                            min_steps: int = 600,
+                            per_image: int = 200,    # [dethrone] 100->200
+                            min_steps: int = 2000,   # [dethrone] 600->2000: formula lama hasilin ~1400 step (=angka KALAH challenger). Floor 2000 = atas angka menang bos. Qwen->2000-3000, Z->2000.
                             max_steps: int = 2000) -> int:
-    """Step proporsional ke jumlah gambar (anti-overfit untuk dataset kecil)."""
+    """Step proporsional ke jumlah gambar (anti-overfit untuk dataset kecil).
+    [dethrone] Pelajaran final 11-Jun: pada Qwen/Z, step LEBIH BANYAK menang
+    (bos 2000-2500 ngalahin challenger 1440). max_steps di-cap di caller (3000 Qwen / 2000 Z)."""
     if dataset_size <= 0:
         return min_steps
     steps = dataset_size * per_image
@@ -284,13 +286,13 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
 
         config_mapping = {
             228: {
-                "network_dim": 32,
-                "network_alpha": 32,
+                "network_dim": 64,                       # [dethrone] 32->64: rank level juara (bos product plain-LoRA rank64 menang)
+                "network_alpha": 64,
                 "network_args": []
             },
             235: {
-                "network_dim": 32,
-                "network_alpha": 32,
+                "network_dim": 64,                       # [dethrone] 32->64
+                "network_alpha": 64,
                 "network_args": ["conv_dim=4", "conv_alpha=4", "dropout=null"]
             },
             456: {
@@ -332,7 +334,9 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
         if dataset_size > 0 and not size_config_loaded:
              print(f"Warning: No size-specific configuration (xs/s/m/l/xl) found for model '{model_name}' with {dataset_size} images. Using model defaults.", flush=True)
         
-        config["caption_dropout_rate"] = 0.1
+        # [dethrone] 0.1 -> 0.05: match recipe juara (Qwen config.yaml = 0.05).
+        # 0.1 kemungkinan over-regularize (logo/text & person kalah tipis di tournament 11-Jun).
+        config["caption_dropout_rate"] = 0.05
         
         config_path = os.path.join(train_cst.IMAGE_CONTAINER_CONFIG_SAVE_PATH, f"{task_id}.toml")
         save_config_toml(config, config_path)

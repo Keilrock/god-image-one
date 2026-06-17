@@ -17,6 +17,7 @@ config:
     datasets:
     - folder_path: /dataset/images
       caption_ext: txt
+      caption_dropout_rate: 0.05   # [dethrone] bocorkan konsep ke unconditional (75% skor = no-text); juara Qwen pakai 0.05
       cache_latents_to_disk: true
       resolution: [512, 768, 1024]
       is_reg: false
