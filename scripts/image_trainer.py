@@ -151,7 +151,8 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
         if os.path.exists(train_data_dir):
             ait_dataset_size = count_images_in_directory(train_data_dir)
         if ait_dataset_size > 0 and 'config' in config and 'process' in config['config']:
-            target_steps = compute_aitoolkit_steps(ait_dataset_size)
+            ait_max = 3000 if model_type == ImageModelType.QWEN_IMAGE.value else 2000
+            target_steps = compute_aitoolkit_steps(ait_dataset_size, max_steps=ait_max)
             for process in config['config']['process']:
                 if 'train' in process and isinstance(process['train'], dict):
                     process['train']['steps'] = target_steps
