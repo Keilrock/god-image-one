@@ -17,7 +17,7 @@ CFG = json.load(open(os.path.join(os.path.dirname(__file__), "dethrone_tasks.jso
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tasks", nargs="+", default=["T1", "T3", "T5"])
+    ap.add_argument("--tasks", nargs="+", default=["QF", "T1", "T5"])  # 2 backend + single/multi-img + gap tipis, no dobel SDXL
     ap.add_argument("--data-root", default="data", help="data/<TASK>/test/ = test_data lokal")
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--tol", type=float, default=0.004, help="toleransi reproduce (held-out beda -> longgar)")
@@ -29,12 +29,15 @@ def main():
         test_dir = os.path.join(args.data_root, tk, "test")
         if not os.path.isdir(test_dir):
             print(f"[{tk}] SKIP: {test_dir} nggak ada"); continue
-        boss_repo, chal_repo = repo_for(CFG, tk, "boss"), repo_for(CFG, tk, "chal")
-        print(f"\n===== {tk} ({t['cat']}/{t['model_type']}, base={t['base']}) =====")
-        res = run_eval_container([boss_repo, chal_repo], t["base"], test_dir, t["model_type"], args.gpu)
+        # eval role yg punya angka expected di task ini (T1/T5 = boss+chal; QF = chal+me, gak ada boss)
+        roles = [r for r in ("boss", "chal", "me") if t.get(r) is not None]
+        repos = {r: repo_for(CFG, tk, r) for r in roles}
+        print(f"\n===== {tk} ({t['cat']}/{t['model_type']}, base={t['base']}) | roles={roles} =====")
+        res = run_eval_container(list(repos.values()), t["base"], test_dir, t["model_type"], args.gpu)
 
         print(f"{'who':<6}{'weighted':>11}{'expected':>11}{'diff':>10}{'verdict':>10}")
-        for role, repo, exp in [("boss", boss_repo, t.get("boss")), ("chal", chal_repo, t.get("chal"))]:
+        for role in roles:
+            repo, exp = repos[role], t.get(role)
             el = res.get(repo)
             if not isinstance(el, dict):
                 print(f"{role:<6}  GAGAL: {el}"); all_ok = False; continue
