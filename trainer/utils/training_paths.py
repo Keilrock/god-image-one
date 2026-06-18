@@ -47,24 +47,15 @@ def _detect_style_from_captions(train_data_dir: str) -> bool:
     styles = detect_styles_in_prompts(prompts)
     return bool(styles)
 
-def get_image_training_config_template_path(model_type: str, train_data_dir: str) -> tuple[str, bool]:
+def get_image_training_config_template_path(model_type: str, train_data_dir: str, trigger_word: str | None = None) -> tuple[str, bool]:
     model_type = model_type.lower()
     if model_type == ImageModelType.SDXL.value:
-        prompts_path = os.path.join(train_data_dir, "5_lora style")
-        prompts = []
-        for file in os.listdir(prompts_path):
-            if file.endswith(".txt"):
-                with open(os.path.join(prompts_path, file), "r") as f:
-                    prompt = f.read().strip()
-                    prompts.append(prompt)
-
-        styles = detect_styles_in_prompts(prompts)
-        print(f"Styles: {styles}")
-
-        if styles:
-            return str(Path(train_cst.IMAGE_CONTAINER_CONFIG_TEMPLATE_PATH) / "base_diffusion_sdxl_style.toml"), True
-        else:
-            return str(Path(train_cst.IMAGE_CONTAINER_CONFIG_TEMPLATE_PATH) / "base_diffusion_sdxl_person.toml"), False
+        # [dethrone] style = trigger_word None (ground-truth validator: style task = trigger NULL).
+        # Deterministik; ganti deteksi caption (cuma proxy). ds_prefix di-strip saat training,
+        # tapi trigger_word ke-pass via --trigger-word -> sinyal valid di runtime.
+        is_style = trigger_word is None or not str(trigger_word).strip()
+        tmpl = "base_diffusion_sdxl_style.toml" if is_style else "base_diffusion_sdxl_person.toml"
+        return str(Path(train_cst.IMAGE_CONTAINER_CONFIG_TEMPLATE_PATH) / tmpl), is_style
 
     elif model_type == ImageModelType.FLUX.value:
         return str(Path(train_cst.IMAGE_CONTAINER_CONFIG_TEMPLATE_PATH) / "base_diffusion_flux.toml"), False

@@ -118,12 +118,73 @@ def load_lrs_config(model_type: str, is_style: bool) -> dict:
         return None
 
 
+# ============ [dethrone] routing per-kategori SDXL (HYBRID, Final Round Intel) ============
+# Kategori BUKAN ditebak liar: style = trigger_word None (ground-truth). logo/design = keyword
+# HIGH-PRECISION (fraction-based, bias ke default). person/product/social + ambigu = DEFAULT plain-64.
+# Asimetri downside: DoRA-default = blunder product -26% (bukti T3); plain-default = cuma suboptimal.
+CATEGORY_FRACTION_THRESHOLD = 0.6   # >=60% caption harus match -> task BENERAN logo/design, bukan sebutan insidental
+# logo: istilah logo-DESIGN (bukan "logo" telanjang yg bisa muncul sbg fitur produk, mis. "debossed 'AG' logo")
+LOGO_PATTERNS = [r'\bvector\b', r'brand\s*mark', r'\bwordmark\b', r'\bmonogram\b', r'\blogotype\b',
+                 r'logo\s+(mark|design|concept|collection|artwork|icon|grid)',
+                 r'(minimalist|geometric|flat|abstract|modern|line-art)\s+logo']
+DESIGN_PATTERNS = [r'\bUI\b', r'\bUX\b', r'user interface', r'\bwireframe\b', r'\bdashboard\b',
+                   r'app\s+(screen|interface|ui)', r'mobile\s+app', r'\bwebsite\b', r'landing\s+page',
+                   r'\bscreenshot\b', r'\bSaaS\b', r'navigation\s+bar', r'sign[- ]?up\s+screen']
+SDXL_NETWORK_BY_CATEGORY = {
+    "style":   {"network_module": "lycoris.kohya", "network_dim": 32, "network_alpha": 32,
+                "network_args": ["conv_dim=4", "conv_alpha=4", "algo=lora", "dora_wd=True", "loraplus_lr_ratio=16", "dropout=0"]},
+    "logo":    {"network_module": "lycoris.kohya", "network_dim": 32, "network_alpha": 32,
+                "network_args": ["conv_dim=4", "conv_alpha=4", "algo=lora", "dora_wd=True", "dropout=0"]},
+    "design":  {"network_module": "lycoris.kohya", "network_dim": 32, "network_alpha": 32,
+                "network_args": ["conv_dim=4", "conv_alpha=4", "algo=lora", "dora_wd=True", "dropout=0"]},
+    # DEFAULT (person/product/social/ambigu): plain LoRA-64, NO DoRA, NO conv. (person DoRA-64 = hipotesis sweep, bukan tahap-1)
+    "default": {"network_module": "networks.lora", "network_dim": 64, "network_alpha": 64, "network_args": []},
+}
+
+
+def _frac_match(prompts, patterns):
+    if not prompts:
+        return 0.0
+    rx = re.compile("|".join(patterns), re.IGNORECASE)
+    return sum(1 for p in prompts if rx.search(p)) / len(prompts)
+
+
+def detect_image_category(trigger_word, prompts):
+    """style|logo|design|default. High-precision: ragu -> default plain-64."""
+    if trigger_word is None or not str(trigger_word).strip():
+        return "style"
+    logo = _frac_match(prompts, LOGO_PATTERNS)
+    design = _frac_match(prompts, DESIGN_PATTERNS)
+    if logo >= CATEGORY_FRACTION_THRESHOLD and logo >= design:
+        return "logo"
+    if design >= CATEGORY_FRACTION_THRESHOLD:
+        return "design"
+    return "default"
+
+
+def _read_sdxl_prompts(train_data_dir):
+    folder = os.path.join(
+        train_data_dir,
+        f"{cst.DIFFUSION_SDXL_REPEATS}_{cst.DIFFUSION_DEFAULT_INSTANCE_PROMPT} {cst.DIFFUSION_DEFAULT_CLASS_PROMPT}",
+    )
+    prompts = []
+    try:
+        for fn in os.listdir(folder):
+            if fn.endswith(".txt"):
+                with open(os.path.join(folder, fn)) as fh:
+                    prompts.append(fh.read().strip())
+    except FileNotFoundError:
+        pass
+    return prompts
+# ============ end [dethrone] routing ============
+
+
 def create_config(task_id, model_path, model_name, model_type, expected_repo_name, trigger_word: str | None = None):
     """Get the training data directory"""
     train_data_dir = train_paths.get_image_training_images_dir(task_id)
 
     """Create the diffusion config file"""
-    config_template_path, is_style = train_paths.get_image_training_config_template_path(model_type, train_data_dir)
+    config_template_path, is_style = train_paths.get_image_training_config_template_path(model_type, train_data_dir, trigger_word)
 
     is_ai_toolkit = model_type in [ImageModelType.Z_IMAGE.value, ImageModelType.QWEN_IMAGE.value]
     
@@ -320,14 +381,15 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
         config["output_dir"] = output_dir
 
         if model_type == "sdxl":
-            if is_style:
-                network_config = config_mapping[network_config_style[model_name]]
-            else:
-                network_config = config_mapping[network_config_person[model_name]]
-
-            config["network_dim"] = network_config["network_dim"]
-            config["network_alpha"] = network_config["network_alpha"]
-            config["network_args"] = network_config["network_args"]
+            # [dethrone] routing per-kategori (gantikan seleksi per-model lama).
+            category = detect_image_category(trigger_word, _read_sdxl_prompts(train_data_dir))
+            net = SDXL_NETWORK_BY_CATEGORY[category]
+            config["network_module"] = net["network_module"]
+            config["network_dim"] = net["network_dim"]
+            config["network_alpha"] = net["network_alpha"]
+            config["network_args"] = list(net["network_args"])
+            print(f"[dethrone] SDXL category={category} -> module={net['network_module']} "
+                  f"dim={net['network_dim']} args={net['network_args']}", flush=True)
 
 
         # Old size config search removed as requested
@@ -442,7 +504,7 @@ async def main():
     )
 
     train_data_dir = train_paths.get_image_training_images_dir(args.task_id)
-    _, is_style_dataset = train_paths.get_image_training_config_template_path(args.model_type, train_data_dir)
+    _, is_style_dataset = train_paths.get_image_training_config_template_path(args.model_type, train_data_dir, args.trigger_word)
     cat_str = "style" if is_style_dataset else "person"
     auto_caption_dataset(train_data_dir, cat_str)
 
