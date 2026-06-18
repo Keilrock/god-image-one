@@ -7,7 +7,7 @@ SUKSES = reproduce angka boss/chal +/- toleransi. MELESET = bug replikasi -> STO
 Prasyarat: test_data tiap task ada lokal sbg folder (image + .txt), mis:
   data/T1/test/  data/T3/test/  data/T5/test/   (pull pakai fetch_task_dataset.py / scp dari lokal)
 
-  python3 validate_eval.py --tasks T1 T3 T5 --data-root data --gpu 0 --tol 0.004
+  python3 validate_eval.py --tasks QF T1 T5 --data-root data --gpu 0 --tol 0.004
 """
 import argparse, json, os, sys
 from eval_local import run_eval_container, weighted, repo_for
