@@ -177,6 +177,47 @@ def _read_sdxl_prompts(train_data_dir):
     except FileNotFoundError:
         pass
     return prompts
+def _sweep_env(name, cast=str, default=None):
+    v = os.environ.get(name)
+    if v is None or v == "":
+        return default
+    try:
+        return cast(v)
+    except Exception:
+        return default
+
+
+def _sweep_network_override():
+    """[SWEEP] SDXL network override via env DETHRONE_SWEEP_NETWORK (JSON). None = normal."""
+    raw = _sweep_env("DETHRONE_SWEEP_NETWORK")
+    if not raw:
+        return None
+    net = json.loads(raw)
+    print(f"[dethrone][SWEEP] SDXL network override -> {net}", flush=True)
+    return net
+
+
+def _apply_sweep_overrides_aitoolkit(config):
+    """[SWEEP] override opt-in Z/Qwen via env (steps/cd/TE/linear). Kosong = produksi normal."""
+    steps = _sweep_env("DETHRONE_SWEEP_STEPS", int)
+    cd = _sweep_env("DETHRONE_SWEEP_CD", float)
+    te = _sweep_env("DETHRONE_SWEEP_QWEN_TE")
+    linear = _sweep_env("DETHRONE_SWEEP_LINEAR", int)
+    if all(x is None for x in (steps, cd, te, linear)):
+        return
+    for process in config.get("config", {}).get("process", []):
+        if isinstance(process.get("train"), dict):
+            if steps is not None:
+                process["train"]["steps"] = steps
+            if te is not None:
+                process["train"]["train_text_encoder"] = str(te).lower() == "true"
+        if linear is not None and isinstance(process.get("network"), dict):
+            process["network"]["linear"] = linear
+            process["network"]["linear_alpha"] = linear
+        if cd is not None:
+            for ds in process.get("datasets", []):
+                ds["caption_dropout_rate"] = cd
+    print(f"[dethrone][SWEEP] ai-toolkit override: steps={steps} cd={cd} te={te} linear={linear}", flush=True)
 # ============ end [dethrone] routing ============
 
 
@@ -226,7 +267,9 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
                         process['save']['save_every'] = max(target_steps // 4, 1)
             print(f"[B] ai-toolkit size-aware: {ait_dataset_size} imgs -> {target_steps} steps", flush=True)
         # --- akhir Jalur B ---
-        
+
+        _apply_sweep_overrides_aitoolkit(config)   # [dethrone][SWEEP] opt-in env override (Z/Qwen)
+
         config_path = os.path.join(train_cst.IMAGE_CONTAINER_CONFIG_SAVE_PATH, f"{task_id}.yaml")
         save_config(config, config_path)
         print(f"Created ai-toolkit config at {config_path}", flush=True)
@@ -384,7 +427,7 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
         if model_type == "sdxl":
             # [dethrone] routing per-kategori (gantikan seleksi per-model lama).
             category = detect_image_category(trigger_word, _read_sdxl_prompts(train_data_dir))
-            net = SDXL_NETWORK_BY_CATEGORY[category]
+            net = _sweep_network_override() or SDXL_NETWORK_BY_CATEGORY[category]   # [SWEEP] env opt-in
             # defensive: kalau DoRA dipilih tapi lycoris nggak keinstall -> fallback plain-64 (jangan crash)
             if net["network_module"] == "lycoris.kohya" and importlib.util.find_spec("lycoris") is None:
                 print(f"[dethrone][WARN] lycoris TIDAK terinstall -> kategori '{category}' FALLBACK ke plain-LoRA-64. "
@@ -404,7 +447,7 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
         
         # [dethrone] 0.1 -> 0.05: match recipe juara (Qwen config.yaml = 0.05).
         # 0.1 kemungkinan over-regularize (logo/text & person kalah tipis di tournament 11-Jun).
-        config["caption_dropout_rate"] = 0.05
+        config["caption_dropout_rate"] = _sweep_env("DETHRONE_SWEEP_CD", float, 0.05)   # [SWEEP] env opt-in
         
         config_path = os.path.join(train_cst.IMAGE_CONTAINER_CONFIG_SAVE_PATH, f"{task_id}.toml")
         save_config_toml(config, config_path)

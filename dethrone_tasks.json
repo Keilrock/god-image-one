@@ -1,0 +1,14 @@
+{
+  "_comment": "Data final round 11-Jun + QF. repo = gradients-io-tournaments/tournament-tourn_43119372e7807746_20260611-{id}-{hotkey}. hotkeys: boss=5GU4Xkd3, chal=5Ca32LwM, me=5FW81h8N. threshold dethrone=3% (challenger loss <= boss*0.97).",
+  "repo_prefix": "gradients-io-tournaments/tournament-tourn_43119372e7807746_20260611",
+  "hotkeys": {"boss": "5GU4Xkd3", "chal": "5Ca32LwM", "me": "5FW81h8N"},
+  "tasks": {
+    "T1": {"id": "6c2c1658-99af-426c-8ebb-b6487bcfaf2a", "cat": "person", "model_type": "qwen-image", "base": "gradients-io-tournaments/Qwen-Image", "trigger": "David", "test_n": 5, "boss": 0.08585, "chal": 0.08671},
+    "T2": {"id": "cebcd279-5233-46ce-8812-a71632ef4c10", "cat": "logo", "model_type": "z-image", "base": "gradients-io-tournaments/Z-Image-Turbo", "trigger": "BrandEssence", "test_n": 5, "boss": 0.04083, "chal": 0.04591},
+    "T3": {"id": "5b75fb5c-6afb-4b2f-9fe3-64f5128ec997", "cat": "product", "model_type": "sdxl", "base": "dataautogpt3/TempestV0.1", "trigger": "AuraGlow-Lamp-X1", "test_n": 4, "boss": 0.04023, "chal": 0.05056},
+    "T4": {"id": "46e2d92b-d0c2-41e5-be91-76e4043671f3", "cat": "style", "model_type": "sdxl", "base": "fluently/Fluently-XL-Final", "trigger": null, "test_n": 3, "boss": 0.03890, "chal": 0.03652},
+    "T5": {"id": "539a5d8e-79ec-489b-98fb-b1e63080f23c", "cat": "logo", "model_type": "sdxl", "base": "stablediffusionapi/protovision-xl-v6.6", "trigger": "Brandmark Blueprint", "test_n": 3, "boss": 0.04106, "chal": 0.04127},
+    "T6": {"id": "e487e484-3c31-4acd-a6df-2d4d96b8dfeb", "cat": "logo", "model_type": "sdxl", "base": "stablediffusionapi/protovision-xl-v6.6", "trigger": "BrandVistaMarks", "test_n": 3, "boss": 0.06490, "chal": 0.02260, "note": "boss BLUNDER (LoRA mati) -> 0.0649 TIDAK repeatable; boss recipe asli ~0.041"},
+    "QF": {"id": "35d4e786-a472-4bfa-a718-aabe6e4f13f5", "cat": "person", "model_type": "sdxl", "base": "zenless-lab/sdxl-blue-pencil-xl-v7", "trigger": "Ramiro Vargas", "test_n": 1, "chal": 0.0580, "me": 0.0616}
+  }
+}
