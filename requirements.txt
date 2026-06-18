@@ -1,2 +1,4 @@
 docker
 typer
+# [dethrone] DoRA via LyCORIS utk style/logo/design (default plain-LoRA tetap aman tanpa ini)
+lycoris_lora
