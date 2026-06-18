@@ -12,6 +12,12 @@ RUN pip install aiohttp pydantic requests toml \
     transformers==4.44.0 pandas==2.2.3 tiktoken==0.8.0 sentencepiece==0.2.0 peft==0.11.1 Pillow==11.1.0 PyYAML \
     requests huggingface_hub
 
+# [dethrone] DoRA via LyCORIS (style/logo/design). DEFENSIVE: install HANYA kalau base belum punya,
+# dan build TIDAK BOLEH gagal (kalau install error -> warn, runtime fallback ke plain-LoRA-64).
+RUN python -c "import lycoris" 2>/dev/null && echo "[dethrone] lycoris already present in base image" \
+    || pip install --no-cache-dir lycoris_lora \
+    || echo "[dethrone][WARN] lycoris install GAGAL -> DoRA category fallback ke plain-LoRA-64 saat runtime"
+
 RUN mkdir -p /dataset/configs \
     /dataset/outputs \
     /dataset/images \

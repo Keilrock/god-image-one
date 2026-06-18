@@ -2,7 +2,8 @@
 """
 eval_ab.py — bandingin recipe jalur-B vs jalur-C di held-out yang SAMA (JALANIN DI L40).
 Eval deterministik validator: master_seed=42, strength 1.0, EVAL_DEFAULTS, no_text=empty-prompt.
-Skor = 0.25*text_guided + 0.75*no_text. Anchor bos person = 0.086.
+Skor = 0.25*text_guided + 0.75*no_text.
+Anchor QF asli (35d4e786, base blue-pencil, dataset ramiro): jalur-b=0.0616 (reproduce), target challenger=0.0580.
 
 PRASYARAT (lo siapin di L40):
   - LoRA hasil train branch b & c udah di-push ke HF (eval container narik via HF).
@@ -21,7 +22,8 @@ import argparse, json, os, subprocess, sys, tempfile, uuid
 EVAL_IMAGE = "gradientsio/image-evaluator:basilica"
 RESULTS_IN_CONTAINER = "/aplp/evaluation_results.json"
 TEXT_W = 0.25
-BOSS_ANCHOR = 0.086  # bos person final (Qwen); referensi kasar
+ANCHOR_B_REPRO = 0.0616  # jalur-b 5FW81h di QF asli -> eval lokal jalur-b harus ~ini (validasi pipeline)
+ANCHOR_TARGET = 0.0580   # challenger 5Ca32 di QF asli -> jalur-c TARGET <= ini
 
 
 def run_eval(models, base_model, test_dir, model_type, gpu, hf_cache):
@@ -79,23 +81,33 @@ def main():
     if not res:
         sys.exit("Eval gagal / nggak ada hasil.")
 
-    print(f"\n{'branch':<10}{'text_guided':>13}{'no_text(75%)':>14}{'weighted':>11}{'vs_boss_0.086':>15}")
-    rows = []
+    print(f"\n{'branch':<10}{'text_guided':>13}{'no_text(75%)':>14}{'weighted':>11}")
+    rows = {}
     for label, repo in [("jalur-b", args.lora_b), ("jalur-c", args.lora_c)]:
         r = res.get(repo)
         if not isinstance(r, dict) or "eval_loss" not in r:
             print(f"{label:<10}  (gagal: {r})"); continue
         tg, nt, w = weighted(r["eval_loss"])
-        rows.append((label, w))
-        print(f"{label:<10}{tg:>13.5f}{nt:>14.5f}{w:>11.5f}{w - BOSS_ANCHOR:>+15.5f}")
-    if len(rows) == 2:
-        b, c = rows[0][1], rows[1][1]
-        delta = c - b
-        print(f"\nDELTA (c - b) weighted = {delta:+.5f}  -> "
-              f"{'jalur-c LEBIH BAIK' if delta < 0 else 'jalur-b lebih baik / c regресi'}")
-        print("Fokus kolom no_text(75%): di situ saturasi caption_dropout paling kelihatan.")
-    print(f"\nCatatan: held-out cuma {len([f for f in os.listdir(args.test_dir) if f.endswith('.png')])} gambar -> "
-          "noisy. Kalau delta < ~0.003, anggap inconclusive, tambah held-out (self-gen).")
+        rows[label] = w
+        print(f"{label:<10}{tg:>13.5f}{nt:>14.5f}{w:>11.5f}")
+
+    print("\nReferensi QF asli (task 35d4e786, base blue-pencil, dataset ramiro):")
+    print(f"  jalur-b 5FW81h (QF asli) = {ANCHOR_B_REPRO:.4f}  <- eval lokal jalur-b harusnya ~ini")
+    print(f"  challenger 5Ca32 (target) = {ANCHOR_TARGET:.4f}  <- jalur-c TARGET <= ini")
+    print("  ! held-out lokal (5 asli self-split) != held-out validator -> angka absolut nggak match persis;")
+    print("    DELTA c-b di held-out yg SAMA = sinyal utama; 0.0616/0.0580 = referensi kasar.")
+
+    if "jalur-b" in rows and "jalur-c" in rows:
+        b, c = rows["jalur-b"], rows["jalur-c"]
+        repro_err = b - ANCHOR_B_REPRO
+        print(f"\njalur-b reproduce : {b:.5f}  (vs 0.0616, selisih {repro_err:+.5f}) -> "
+              f"{'pipeline ballpark OK' if abs(repro_err) <= 0.010 else 'MELENCENG jauh -> eval lokal beda dr validator, cek setup'}")
+        print(f"jalur-c vs target : {c:.5f}  (vs 0.0580) -> "
+              f"{'≤ target (lewatin challenger)' if c <= ANCHOR_TARGET else 'BELUM lewat target'}")
+        print(f"DELTA (c - b)     : {c - b:+.5f}  -> "
+              f"{'jalur-c LEBIH BAIK' if c < b else 'jalur-b lebih baik / c regresi'}  (fokus kolom no_text 75%)")
+    n_test = len([f for f in os.listdir(args.test_dir) if f.endswith('.png')])
+    print(f"\nCatatan: held-out {n_test} gambar -> noisy. |DELTA| < ~0.003 = inconclusive; tambah held-out (self-gen).")
 
 
 if __name__ == "__main__":

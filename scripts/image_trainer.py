@@ -7,6 +7,7 @@ everything u are 10
 import argparse
 import asyncio
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -384,6 +385,11 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
             # [dethrone] routing per-kategori (gantikan seleksi per-model lama).
             category = detect_image_category(trigger_word, _read_sdxl_prompts(train_data_dir))
             net = SDXL_NETWORK_BY_CATEGORY[category]
+            # defensive: kalau DoRA dipilih tapi lycoris nggak keinstall -> fallback plain-64 (jangan crash)
+            if net["network_module"] == "lycoris.kohya" and importlib.util.find_spec("lycoris") is None:
+                print(f"[dethrone][WARN] lycoris TIDAK terinstall -> kategori '{category}' FALLBACK ke plain-LoRA-64. "
+                      f"DoRA nggak aktif! install lycoris_lora di image biar recipe jalan.", flush=True)
+                net = SDXL_NETWORK_BY_CATEGORY["default"]
             config["network_module"] = net["network_module"]
             config["network_dim"] = net["network_dim"]
             config["network_alpha"] = net["network_alpha"]
