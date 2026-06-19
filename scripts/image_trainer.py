@@ -210,7 +210,13 @@ def _apply_sweep_overrides_aitoolkit(config):
             if steps is not None:
                 process["train"]["steps"] = steps
             if te is not None:
-                process["train"]["train_text_encoder"] = str(te).lower() == "true"
+                te_on = str(te).lower() == "true"
+                process["train"]["train_text_encoder"] = te_on
+                if te_on:
+                    # ai-toolkit (SDTrainer.hook_before_train_loop): RAISE kalau cache/unload TE
+                    # sementara TE di-train. Matiin caching+unload TE biar TE-on jalan.
+                    process["train"]["cache_text_embeddings"] = False
+                    process["train"]["unload_text_encoder"] = False
         if linear is not None and isinstance(process.get("network"), dict):
             process["network"]["linear"] = linear
             process["network"]["linear_alpha"] = linear

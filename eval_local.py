@@ -15,6 +15,7 @@ def run_eval_container(models, base_model, test_dir, model_type, gpu=0,
                        hf_cache=os.path.expanduser("~/.cache/huggingface/hub")):
     """models: list HF repo (LoRA). return {repo: {text_guided_losses, no_text_losses}} | {repo: errstr}."""
     name = f"eval-{uuid.uuid4().hex[:8]}"
+    tok = os.environ.get("HF_TOKEN", "")
     cmd = [
         "docker", "run", "--name", name, "--gpus", f"device={gpu}", "--runtime", "nvidia",
         "-v", f"{os.path.abspath(test_dir)}:/workspace/input_data:ro",
@@ -25,9 +26,12 @@ def run_eval_container(models, base_model, test_dir, model_type, gpu=0,
         "-e", f"ORIGINAL_MODEL_REPO={base_model}",
         "-e", f"MODEL_TYPE={model_type}",
         "-e", "TRANSFORMERS_ALLOW_TORCH_LOAD=true",
-        EVAL_IMAGE,
     ]
-    print("RUN:", " ".join(cmd), flush=True)
+    if tok:  # akses repo LoRA private (sweep push private); public repo gak terpengaruh
+        cmd += ["-e", f"HF_TOKEN={tok}", "-e", f"HUGGING_FACE_HUB_TOKEN={tok}"]
+    cmd += [EVAL_IMAGE]
+    safe = " ".join(cmd).replace(tok, "***") if tok else " ".join(cmd)
+    print("RUN:", safe, flush=True)
     rc = subprocess.run(cmd).returncode
     out = {}
     try:

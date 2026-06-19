@@ -26,11 +26,12 @@ _PLAIN = lambda dim: {"network_module": "networks.lora", "network_dim": dim, "ne
 # ARMS: tiap arm = dict env-override. None = nggak di-set (pakai default jalur-c).
 ARMS = {
     # FASE 1 — logo SDXL: flip gap 0.5% jadi >3% via LoRA+ / rank
+    # tiap arm ubah 1 variabel dari baseline-a: b=+LoRA+, c=+LoRA++rank48, d=+cd0 (isolasi cd, TANPA LoRA+)
     "logo": {
-        "a_dora32":            {"NETWORK": _DORA(32)},                                 # ~challenger baseline
-        "b_dora32_loraplus16": {"NETWORK": _DORA(32, ["loraplus_lr_ratio=16"])},        # +LoRA+
-        "c_dora48_loraplus16": {"NETWORK": _DORA(48, ["loraplus_lr_ratio=16"])},        # +LoRA+ rank48
-        "d_dora32_lp16_cd0":   {"NETWORK": _DORA(32, ["loraplus_lr_ratio=16"]), "CD": 0.0},  # logo butuh TEKS -> cd rendah (ide tambahan)
+        "a_dora32":            {"NETWORK": _DORA(32)},                                 # baseline ~challenger T5 (cd default 0.05)
+        "b_dora32_lp16":       {"NETWORK": _DORA(32, ["loraplus_lr_ratio=16"])},        # +LoRA+ratio16 (hipotesis inti)
+        "c_dora48_lp16":       {"NETWORK": _DORA(48, ["loraplus_lr_ratio=16"])},        # +LoRA+ratio16, rank48
+        "d_dora32_cd0":        {"NETWORK": _DORA(32), "CD": 0.0},                       # baseline + cd0 (logo butuh render teks)
     },
     # FASE 2 Track A — person SDXL (QF blue-pencil/Ramiro). default plain-64; DoRA-64 = hipotesis
     "person-sdxl": {
@@ -39,11 +40,12 @@ ARMS = {
         "c_plain96_cd05":  {"NETWORK": _PLAIN(96), "CD": 0.05},   # kapasitas identitas
         "d_dora64_cd10":   {"NETWORK": _DORA(64), "CD": 0.10},    # hipotesis DoRA-64 person
     },
-    # FASE 2 Track B — person Qwen (T1 David, ai-toolkit). TE-on = lever yg BOSS & CHAL belum coba
+    # FASE 2 Track B — person Qwen (T1 David, ai-toolkit). TE-on = lever yg BOSS & CHAL belum coba.
+    # STEP LOCKED 2500 (= titik kerja boss) biar delta murni dari TE/cd, bukan step. TEoff di-skip (udah
+    # ke-anchor di FASE 0: boss reproduce 0.08578). STEPS=2500 override patch-B size-aware (anti-undertrain jalur-b).
     "person-qwen": {
-        "a_teoff_cd05": {"QWEN_TE": "false", "CD": 0.05},         # = jalur-c default = boss
-        "b_teon_cd05":  {"QWEN_TE": "true",  "CD": 0.05},         # EDGE candidate
-        "c_teon_cd10":  {"QWEN_TE": "true",  "CD": 0.10},
+        "a_teon_2500_cd05": {"QWEN_TE": "true", "CD": 0.05, "STEPS": 2500},   # hipotesis inti: TE-on nurunin no_text
+        "b_teon_2500_cd10": {"QWEN_TE": "true", "CD": 0.10, "STEPS": 2500},   # + cd10 (lever 2A) di Qwen
     },
 }
 
@@ -102,7 +104,10 @@ def main():
             continue
         out = os.path.abspath(f"sweep_out/{args.phase}/{name}")
         os.makedirs(out, exist_ok=True)
-        train_arm(arm_env, out, args)
+        if os.path.exists(os.path.join(out, "checkpoints", "last.safetensors")):
+            print(f"[resume] {name}: checkpoints/last.safetensors sudah ada -> skip train, push doang", flush=True)
+        else:
+            train_arm(arm_env, out, args)
         push_hf(out, repo)
 
     print("\nEval semua arm (1 container)...")

@@ -1,3 +1,12 @@
 .agents
 
 G.O.D
+/data
+/sweep_out
+/dethrone_env.sh
+/raw
+/build.log
+/dethrone_cache
+
+__pycache__/
+*.pyc
