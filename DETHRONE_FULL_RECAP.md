@@ -103,21 +103,22 @@ target ≤0.03983. **Keempat arm nembus target di KEDUA task** (no train/test le
 | **style** (.25) | SDXL/kohya | **WIN** | DoRA32 + conv4 + `loraplus_lr_ratio=16` (lycoris.kohya, dora_wd) |
 | **logo** (.15) | SDXL/kohya | **EDGE** (T5 −16.9%, robust) | DoRA32 + conv4 (DoRA tanpa LoRA+) — cd 0.05 |
 | design (.10) | SDXL/kohya | (tak muncul) | DoRA32 + conv4 |
-| person (.25) | SDXL/kohya | tie (QF only) | plain-LoRA 64 (no DoRA, no conv) — cd 0.05 |
+| person (.25) | SDXL/kohya | tie (QF only) | plain-LoRA 64 (no DoRA, no conv) — **cd 0.10 via detektor person** (product tetap cd05) |
 | product (.10) | SDXL/kohya | **fortress (seri)** | plain-LoRA 64 — cd 0.05 |
-| person (.25) | Qwen/ai-toolkit | **fortress** (concede) | linear128, TEoff, cd05, step size-aware 2000–3000 (bracket boss 2500) |
+| person (.25) | Qwen/ai-toolkit | **fortress** (concede) | linear128, TEoff, cd05, step size-aware 2000–3000 (boss config 2500 → aktual ke-cap ~1250 by-budget) |
 | logo (.15) | Z/ai-toolkit | fortress (seri) | ai-toolkit standar (linear32+conv16) |
 | cd global | SDXL | — | **0.05** (default), kecuali override sweep (inert di produksi) |
 
-Routing tetap konsisten: **style = trigger_word NULL** (deterministik) · **logo/design = keyword high-precision
+Routing tetap konsisten: **style SDXL = caption-keyword champion** (`detect_styles_in_prompts`, c65c405) · **logo/design = keyword high-precision
 (≥60% caption)** · **default (person/product/social/ambigu) = plain-64** (asimetri downside: plain-default cuma
 suboptimal, DoRA-default = blunder product −26%).
 
-### Keputusan cd yang DI-DEFER (tidak di-lock, dgn alasan):
-- **person-SDXL cd10** (temuan 2A): TIDAK di-apply. person & product **share route "default"** — set default
-  cd10 bakal kena product juga (fortress seri, cd10 untested → risiko break seri). person-cd10 cuma tervalidasi
-  di QF (qualifier, 1-img). **Asimetri risiko → tahan di cd05.** Opsi future: tambah detektor person utk split.
-- **logo cd0** (arm-d): TIDAK di-lock. Data wash di weighted (cd05 menang T5 +0.001, cd0 menang T6 +0.002);
+### Keputusan cd final per-kategori:
+- **person-SDXL cd10** (temuan 2A): **DI-APPLY via detektor person high-precision** (commit `ac84a2c`).
+  `is_person_dataset`: cd10 HANYA kalau `person_frac≥0.60 & product_frac<0.20` di route "default" → person→cd10,
+  **product (juga "default") TETAP cd05** (fortress aman). Network tetap plain-64; cuma cd beda. Bias-aman:
+  false-negative (person→cd05) OK, false-positive (product→cd10) dilarang. Smoke-test: person→cd10, product→cd05, ambiguous→cd05.
+- **logo cd0** (arm-d): TIDAK di-lock (tetap cd05). Data wash di weighted (cd05 menang T5 +0.001, cd0 menang T6 +0.002);
   cd0 menang text 2 task tapi verified-win T5 (−16.9%) pakai cd05. Pilih cd05 (proven). cd0 = future text-render exp.
 
 ---
@@ -132,7 +133,9 @@ Referensi proven: `jalur-b-sizeaware` (posisi 4 minggu lalu). DIFF jalur-c vs ja
 - **File MODIFIED (production, perubahan INTENSIONAL = recipe lock):**
   - `scripts/image_trainer.py`: routing DoRA per-kategori, cd 0.1→0.05, step floor (per_image 100→200,
     min 600→2000), + sweep-hook env (`DETHRONE_SWEEP_*`). **Semua hook env-gated → inert kalau env UNSET.**
-  - `trainer/utils/training_paths.py`: style-routing → `trigger_word is None` (deterministik).
+  - `trainer/utils/training_paths.py`: style-routing SDXL = **caption-keyword champion** (`detect_styles_in_prompts`, c65c405).
+    trigger-null sempat dicoba lalu **DIBALIKIN** ke champion (proven anti-nyasar; trigger-null cuma didukung 1 task
+    observasi). Z/Qwen = tambahan operator `_detect_style_from_captions` (dipertahankan).
   - `base_diffusion_qwen_image.yaml` / `_zimage.yaml`: +`caption_dropout_rate: 0.05`.
   - `dockerfile` / `requirements.txt`: +lycoris_lora (defensive, build gak boleh gagal).
 
@@ -165,6 +168,9 @@ terisolasi (standalone, env-gated, tak masuk image). Yang berbeda dari jalur-b c
   - TE-on bentrok `cache_text_embeddings` (ai-toolkit raise) → patch matiin caching TE pas TE-on (env-gated).
 - **Anomali:** boss T6 BLUNDER 0.0649 (DiT-LoRA di task SDXL → key mismatch → LoRA mati); real boss-logo ~0.041.
   Sweep auto-pakai 0.0649 sbg boss T6 → ABAIKAN, pakai ~0.041.
+- **Boss T1 step (koreksi dari asumsi awal):** `checkpoints/config.yaml` boss = `steps: 2500`, TAPI checkpoint cuma
+  sampai `last_000001250` (keep-4) → boss **niat 2500, aktual ke-cap ~1250** (validator `hours_to_complete` ngecap
+  by-budget). LoRA yg menang (0.08585) = checkpoint 1250-step. → floor Qwen 2000 inert di turnamen (ke-cap duluan).
 - **Belum diuji (next time):** person-SDXL vs boss tournament asli (QF cuma qualifier, gak ada boss); riset
   apakah ai-toolkit qwen bisa di-config LoRA text-encoder beneran (TE-on real); logo edge di task ke-2 yg
   boss-nya VALID (T6 blunder bikin re-validasi vs-boss gak konklusif).
