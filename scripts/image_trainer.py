@@ -163,6 +163,42 @@ def detect_image_category(trigger_word, prompts):
     return "default"
 
 
+# ============ [dethrone] detektor PERSON high-precision (cd0.10 utk person-SDXL) ============
+# Dipakai HANYA buat pilih caption_dropout di route "default" (network tetap plain-64 utk person & product).
+# Temuan FASE 2A: cd10 > cd05 di person-SDXL (no_text -0.0045, no downside). TAPI person & product
+# share route "default" -> product (fortress seri, cd10 UNTESTED) GAK BOLEH kena cd10.
+# Asimetri: false-negative (person->cd05) AMAN (cuma suboptimal); false-positive (product->cd10) DILARANG.
+# Aturan: cd10 HANYA kalau MAYORITAS caption sinyal-person KUAT (>=60%) DAN sinyal-product nyaris nol (<20%).
+PERSON_PATTERNS = [
+    r'\bportrait\b', r'\bheadshot\b', r'\bselfie\b', r'\bface\b', r'\bfacial\b',
+    r'\b(man|woman|person|people|guy|girl|boy|lady|male|female|gentleman)\b',
+    r'\bwearing\b', r'\bsmil(e|ing)\b', r'\bbeaming\b', r'\bgrin(ning)?\b',
+    r'\b(his|her)\s+(face|smile|hair|expression|eyes|head|shoulders)\b',
+    r'\b(he|she)\s+(is|appears|wears|has|stands|sits|looks|holds)\b',
+    r'\b(lifestyle|portrait|headshot)\s+photograph', r'\bexpression\b',
+]
+# sinyal PRODUCT/objek -> kalau muncul, JANGAN anggap person (lindungi fortress product)
+PRODUCT_EXCLUDE_PATTERNS = [
+    r'\bproduct\b', r'\bpackaging\b', r'\bbottle\b', r'\bjar\b', r'\bdevice\b', r'\bgadget\b',
+    r'\bappliance\b', r'\b(lamp|mug|cup|watch|shoe|sneaker|bag|furniture|chair|sofa|table)\b',
+    r'\bstudio\s+(shot|lighting|background|setup)\b',
+    r'\bon\s+a\s+(white|plain|seamless|gradient|colou?red)\s+background\b',
+    r'\bcommercial\s+product\b', r'\be-?commerce\b',
+]
+PERSON_FRACTION_MIN = 0.60      # >=60% caption harus sinyal-person kuat
+PRODUCT_FRACTION_MAX = 0.20     # <20% caption boleh sinyal-product (di atas itu -> bukan person)
+
+
+def is_person_dataset(prompts):
+    """True HANYA kalau high-confidence person (bias-aman ke False). Dipakai utk cd0.10."""
+    if not prompts:
+        return False
+    person = _frac_match(prompts, PERSON_PATTERNS)
+    product = _frac_match(prompts, PRODUCT_EXCLUDE_PATTERNS)
+    return person >= PERSON_FRACTION_MIN and product < PRODUCT_FRACTION_MAX
+# ============ end detektor person ============
+
+
 def _read_sdxl_prompts(train_data_dir):
     folder = os.path.join(
         train_data_dir,
@@ -430,9 +466,16 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
             os.makedirs(output_dir, exist_ok=True)
         config["output_dir"] = output_dir
 
+        _cd_default = 0.05   # [dethrone] default global SDXL cd (flux/non-person: 0.05)
         if model_type == "sdxl":
             # [dethrone] routing per-kategori (gantikan seleksi per-model lama).
-            category = detect_image_category(trigger_word, _read_sdxl_prompts(train_data_dir))
+            sdxl_prompts = _read_sdxl_prompts(train_data_dir)
+            category = detect_image_category(trigger_word, sdxl_prompts)
+            # [dethrone] person-SDXL -> cd0.10 (FASE 2A: cd10>cd05). HANYA route 'default' + high-confidence
+            # person; product (juga 'default') TETAP cd05 (fortress, cd10 untested). Network tetap plain-64.
+            if category == "default" and is_person_dataset(sdxl_prompts):
+                _cd_default = 0.10
+                print(f"[dethrone] SDXL person high-confidence -> caption_dropout 0.10", flush=True)
             net = _sweep_network_override() or SDXL_NETWORK_BY_CATEGORY[category]   # [SWEEP] env opt-in
             # defensive: kalau DoRA dipilih tapi lycoris nggak keinstall -> fallback plain-64 (jangan crash)
             if net["network_module"] == "lycoris.kohya" and importlib.util.find_spec("lycoris") is None:
@@ -451,9 +494,9 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
         if dataset_size > 0 and not size_config_loaded:
              print(f"Warning: No size-specific configuration (xs/s/m/l/xl) found for model '{model_name}' with {dataset_size} images. Using model defaults.", flush=True)
         
-        # [dethrone] 0.1 -> 0.05: match recipe juara (Qwen config.yaml = 0.05).
-        # 0.1 kemungkinan over-regularize (logo/text & person kalah tipis di tournament 11-Jun).
-        config["caption_dropout_rate"] = _sweep_env("DETHRONE_SWEEP_CD", float, 0.05)   # [SWEEP] env opt-in
+        # [dethrone] cd default: 0.05 global; 0.10 utk person-SDXL high-confidence (lihat is_person_dataset).
+        # 0.1->0.05 match recipe juara; person cd10 dari FASE 2A. Sweep env override tetap prioritas.
+        config["caption_dropout_rate"] = _sweep_env("DETHRONE_SWEEP_CD", float, _cd_default)   # [SWEEP] env opt-in
         
         config_path = os.path.join(train_cst.IMAGE_CONTAINER_CONFIG_SAVE_PATH, f"{task_id}.toml")
         save_config_toml(config, config_path)
