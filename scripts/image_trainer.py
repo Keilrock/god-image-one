@@ -268,7 +268,7 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
     train_data_dir = train_paths.get_image_training_images_dir(task_id)
 
     """Create the diffusion config file"""
-    config_template_path, is_style = train_paths.get_image_training_config_template_path(model_type, train_data_dir, trigger_word)
+    config_template_path, is_style = train_paths.get_image_training_config_template_path(model_type, train_data_dir)
 
     is_ai_toolkit = model_type in [ImageModelType.Z_IMAGE.value, ImageModelType.QWEN_IMAGE.value]
     
@@ -602,7 +602,7 @@ async def main():
     )
 
     train_data_dir = train_paths.get_image_training_images_dir(args.task_id)
-    _, is_style_dataset = train_paths.get_image_training_config_template_path(args.model_type, train_data_dir, args.trigger_word)
+    _, is_style_dataset = train_paths.get_image_training_config_template_path(args.model_type, train_data_dir)
     cat_str = "style" if is_style_dataset else "person"
     auto_caption_dataset(train_data_dir, cat_str)
 
