@@ -1,0 +1,11 @@
+[
+  {
+    "name": "concept",
+    "path": "/ephemeral/work/dataset/concept",
+    "enabled": true,
+    "include_subdirectories": false,
+    "balancing": 1.0,
+    "balancing_strategy": "REPEATS",
+    "loss_weight": 1.0
+  }
+]
