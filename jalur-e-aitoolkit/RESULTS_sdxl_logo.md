@@ -140,3 +140,46 @@ Re-train H2-corrected (plain LoRA 32/32 + **cd=0.1**, sisanya sama) → target r
 Kalau reproduce → baru cari edge buat NYALIP (mis. cd sweep, atau best-early-checkpoint pick kayak boss).
 
 ## STATUS B4: AKAR KETEMU (caption_dropout 0.1, dari source). STOP, nunggu go re-train H2-corrected.
+
+---
+
+## FASE B5 — AUDIT PIPELINE ASLI (FIX: stop config manual) (2026-06-27)
+
+User benar: eksperimen B2 pakai config MANUAL, BUKAN pipeline asli repo. Bahaya — turnamen jalanin pipeline asli,
+config manual gak nyerminin + bug pipeline gak ke-detect. Audit semua runtime override + konfirmasi pipeline asli.
+
+### ✅ KONFIRMASI: pipeline asli dipakai (panggil `create_config()` beneran via image trainer-deps)
+REAL config pipeline jalur-e buat logo #6 (trigger `Brandmark_Essentials`, 18 img → bucket "s", category auto="logo"):
+```
+network_module = lycoris.kohya  (DoRA)
+network_args = [conv_dim=4, conv_alpha=4, algo=lora, dora_wd=True, dropout=0]
+network_dim/alpha = 32/32
+caption_dropout_rate = 0.05      <-- pipeline runtime override (line 499), BUKAN 0
+optimizer=prodigy d_coef1.1, lr0.95, 45ep, batch8, min_snr6, constant, seed 2951032222
+```
+
+### 🔴 RUNTIME OVERRIDE / PERILAKU PIPELINE yg config MANUAL KELEWAT
+| # | hal | manual gue | pipeline ASLI kita (line) | pipeline BOSS |
+|---|-----|-----------|---------------------------|---------------|
+| 1 | **caption_dropout_rate** | **0** ❌ | **0.05** (img_trainer:499, _cd_default) | **0.1** (img_trainer:307) |
+| 2 | **LLaVA auto-caption** | ❌ pakai .txt mentah | ✅ auto_caption_dataset: `.txt + ", " + llava_caption` (butuh /opt/models/llava) | ✅ sama (llava) |
+| 3 | **network category routing** | hardcode H1/H2 | ✅ auto-detect "logo"→DoRA+conv (485-488) | plain LoRA (228, person map) |
+| 4 | lrs "s" bucket (LR/opt/ep/batch/min_snr) | ✅ ke-include | ✅ (340/357) | ✅ sama |
+| 5 | template person fields | ✅ | ✅ | ✅ identik |
+| 6 | repeats 5 / folder "5_lora style" | ✅ | ✅ | ✅ |
+
+→ **3 hal kelewat di manual: (1) caption_dropout, (2) LLaVA caption augmentation, (3) network auto-routing.**
+Yang PALING ngefek ke gejala kita (text-following ancur): **#1 cd + #2 llava-caption** (dua-duanya soal caption/text).
+
+### 🔴 TEMUAN STRATEGIS: pipeline ASLI KITA ≠ BOSS (2 deviasi dethrone)
+- **caption_dropout: kita 0.05 vs boss 0.1** (dethrone ubah dari 0.1→0.05).
+- **network: kita DoRA+conv vs boss plain LoRA** (dethrone tambah category routing).
+- → Walau pakai pipeline asli kita, GAK reproduce boss (recipe kita udah dimodif dethrone menjauh dari boss).
+- Catatan: B2 manual (cd=0) makin jauh lagi. Pipeline asli (cd=0.05) lebih deket boss tapi belum sama (0.1).
+
+### NEXT (nunggu Wen) — semua VIA PIPELINE ASLI, no manual:
+1. **Re-run via pipeline asli** (build trainer image + llava) → recipe jalur-e sebenarnya (DoRA+cd0.05+llava-caption). Lihat landing vs boss.
+2. Kalau masih kalah: A/B lewat env override pipeline (DETHRONE_SWEEP_CD) atau ubah `_cd_default`/network di image_trainer.py → samain/ngalahin boss (cd 0.1, plain). TANPA config manual.
+3. Butuh: llava 13GB (auto_caption), trigger word "Brandmark_Essentials", window #6.
+
+## STATUS B5: AUDIT SELESAI. 3 runtime miss (cd/llava/network) teridentifikasi, pipeline asli dikonfirmasi (cd=0.05/DoRA). Pipeline kita ≠ boss (deviasi dethrone). STOP, nunggu putusan: re-run pipeline asli as-is atau fix dulu.
