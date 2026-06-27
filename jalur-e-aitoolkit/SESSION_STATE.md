@@ -10,7 +10,7 @@ Posisi terkini biar besok gampang lanjut. Branch git: `jalur-e-aitoolkit`.
 | **#3 Qwen-art Jib-Mix** | art/style, qwen-image | ai-toolkit | ✅ **setara boss** (EMA-off kalah tipis) | EMA-off best 0.07344 vs boss 0.07292 → **pakai boss EMA-on** |
 | **Z (logo)** | logo, z-image | OneTrainer | ✅ **MENANG** (jalur-d, JANGAN diutak) | DoRA-1150 **0.0308** vs boss 0.04083 (−24%) |
 | **#4 Flux social** | social/style, flux | kohya | ✅ **MENANG** | epoch120 **0.03507** vs juara 5FW2 0.0364 (−3.8%) vs boss 0.0372 (−5.6%) |
-| **SDXL logo** | logo, sdxl | kohya | 🟡 **front terakhir — next session** | — |
+| **SDXL logo** | logo, sdxl | kohya | 🔴 **BELUM kelar** (diagnosa done, fix pending) | best kita 0.0557 vs boss 0.0465 (KALAH ~20%) |
 
 ## Temuan kunci sesi ini
 - **EMA-off = lever PERSON-specific (low-step)**. Menang telak buat person #2 (108 step: EMA-on crush magnitude → EMA-off benerin). GAK transfer ke art #3 (1000 step: magnitude EMA-on udah sehat, EMA-off cuma over-shoot tanpa koherensi).
