@@ -241,3 +241,47 @@ Catatan: rank32/adamw/1000-step yg sekarang BUKAN strategi sengaja buat flux (fl
 — ini murni leftover. Kecuali Wen sengaja mau coba recipe alternatif itu, harus di-revert ke template.
 
 ## STATUS: FASE 3 SELESAI — STOP. JANGAN edit flux.json / train. Nunggu putusan Wen.
+
+---
+---
+
+# FASE 4 — ASAL-USUL `flux.json default` (forensik git)
+
+## Timeline commit `scripts/lrs/flux.json` (cuma 2 commit pernah sentuh)
+| commit | tanggal | author | msg | default |
+|--------|---------|--------|-----|---------|
+| `c65c405` | 2026-05-29 | **besimray** | "Tournament winner repository - Commit: 97607210" (IMPORT boss) | `{}` (boss verbatim) |
+| `e17c29e` | **2026-06-04 17:04 +07** | **Keilrock (Wen sendiri)** | "Update flux.json" | `{rank32/adamw/1000step/lr5e-5}` |
+
+## 1. Kapan & di jalur mana diubah
+- Diubah commit `e17c29e`, **4 Jun 2026**, **di `main`** SEBELUM jalur-b/c/d/e split.
+- Konfirmasi: `e17c29e` = ancestor SEMUA branch (b ✅, c ✅, d ✅, e ✅). Makanya semua jalur kebawa default sama.
+- Bukan dibuat di jalur tertentu — ke-inherit dari main ke semuanya.
+
+## 2. Kenapa diubah (konteks)
+- Bagian dari **batch 3 commit 4 Jun** (16:58–17:04) sama Keilrock:
+  - `6db821a` person_config.json → recipe size-aware (xs/s/m/l/xl) **prodigy**, min_snr_gamma, canggih
+  - `6ad862b` style_config.json → recipe size-aware **adamw** + noise_offset, canggih
+  - `e17c29e` flux.json → default flat `{rank32/adamw/1000step/lr5e-5}`
+- Person/style = recipe SDXL serius (size-aware, prodigy/adamw tuned). Flux = default **flat sederhana**, gak ada size-bucket, gak nyiru recipe juara flux.
+- Commit msg "Update flux.json" **kosong rationale**. → **Intentional edit, TAPI isi generic/tebakan** (gaya SDXL-adamw ditempel ke flux), BUKAN diturunin dari recipe juara flux (yg baru kita tau = rank128/Lion/250 dari source boss).
+
+## 3. Pernah di-test/dipakai turnamen? → **TIDAK**
+- 11 Jun final round (branch b, peringkat 4) = **7 task, NOL flux**:
+  T1 qwen(person), T2 z(logo), T3 sdxl(product), T4 sdxl(style), T5/T6 sdxl(logo), QF sdxl(person).
+- Config flux default ini **gak pernah dieksekusi** di turnamen manapun yg kita punya datanya. Nyangkut sejak 4 Jun, idle.
+
+## 4. Ada task Flux di 11 Jun? → **TIDAK ADA**
+- Task Flux PERTAMA muncul di **18 Jun** (#4, a768272f) — turnamen yg lagi kita target.
+- 18 Jun itu yg menang 5FW2 (miner eksternal) pakai **template boss** (rank128/Lion/250), BUKAN config kita.
+- Repo kita (branch b) **gak ikut** ronde flux 18 Jun (b cuma ikut 11 Jun yg gak ada flux).
+
+## KESIMPULAN FORENSIK
+`flux.json default` (rank32/adamw/1000step/lr5e-5) = **edit sengaja tapi isi generic/tebakan** sama Wen di 4 Jun,
+saat batch-tuning config SDXL person/style. **TIDAK PERNAH dipake/di-test** (gak ada task flux sampe 18 Jun, dan
+repo kita gak ikut ronde itu). Praktis = **leftover yatim**, bukan recipe flux hasil eksperimen. Recipe juara flux
+yg sebenernya (rank128/Lion/250) ada di TEMPLATE (`base_diffusion_flux.toml`) yg justru ke-override default ini.
+
+→ Mendukung revert `default={}` = balik ke template juara, sbg baseline. (TAPI nunggu putusan Wen — belum di-edit.)
+
+## STATUS: FASE 4 SELESAI — STOP. Belum edit apapun.
