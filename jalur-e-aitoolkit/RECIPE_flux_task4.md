@@ -285,3 +285,46 @@ yg sebenernya (rank128/Lion/250) ada di TEMPLATE (`base_diffusion_flux.toml`) yg
 → Mendukung revert `default={}` = balik ke template juara, sbg baseline. (TAPI nunggu putusan Wen — belum di-edit.)
 
 ## STATUS: FASE 4 SELESAI — STOP. Belum edit apapun.
+
+---
+---
+
+# FASE 5 — REVERT + ENV SETUP + THROUGHPUT GATE
+
+## 1. Revert flux.json (commit 738f4ae)
+`scripts/lrs/flux.json` default `{...}` → `{}`. Verified: base kita resolve ke template juara verbatim (rank128/Lion/250).
+
+## 2. Env kohya Flux — pakai DOCKER (env persis boss)
+- Boss prod pakai image `diagonalge/kohya_latest:latest` (BUKAN venv mentah). Pull OK.
+- Env di image: **torch 2.1.2+cu121, diffusers 0.32.2, transformers 4.44.2, accelerate 0.33.0, lion-pytorch OK**. H100 80GB driver 535/cu12.2 → cu121 jalan.
+- 🔑 Komponen flux **baked di image** `/app/flux/`: ae.safetensors (335MB), clip_l.safetensors (246MB), t5xxl_fp16.safetensors (9.8GB). Cuma perlu download unet.
+- 🔴 **GOTCHA penting**: kode boss panggil `/app/sd-scripts/flux_train_network.py` (built-in image), TAPI dockerfile COPY vendored ke `/app/sd-script` (beda huruf 's'!). → **Boss sebenernya jalanin sd-scripts BAWAAN image, vendored repo UNUSED.** Vendored (fa6d8c08) internally inconsistent (`get_noise_pred_and_target() got multiple values for 'is_train'`) — GAGAL kalau dipaksa. Pakai built-in image = JALAN.
+
+## 3. Base model
+- `mhnakif/fluxunchained-dev` → file `fluxunchained-dev-fp16.safetensors` = DiT/unet (23.8GB, 780 tensor, format `double_blocks.*`). Download ke `/ephemeral/flux_models/unet.safetensors`, integritas MATCH.
+- Dataset: train zip udah ada **caption .txt built-in** (11 png + 11 txt) → gak perlu llava auto-caption. Extract ke `/ephemeral/flux_run/img/1_lora style/` (repeats=1, folder kohya).
+
+## 4. 🎯 THROUGHPUT GATE (config_gate.toml = template verbatim, max_train_steps=50)
+Run: `docker ... cd /app/sd-scripts && accelerate launch flux_train_network.py --config_file config_gate.toml`
+- Training JALAN ✅. num img 11, batch 4, grad_accum 2, 3 batch/epoch, 2 step/epoch.
+- avr_loss start ~0.366-0.386 (sane).
+- **Steady-state throughput: ~14.3 s/it** (per optimizer step; range 13.5–14.7). VRAM **58/80GB**, GPU util 100%.
+
+### Estimasi full run
+| | waktu |
+|---|---|
+| 250 step × 14.3s | ~59.6 min (train-loop) |
+| + startup (load 24GB unet+10GB t5+cache latent/TE) | ~1 min |
+| + 12 checkpoint save (fp32 ~3.5GB each) | ~3 min |
+| **TOTAL full 250** | **~64 menit** |
+
+### 🔴 Temuan kunci: throughput kita ≈ boss → window 1.0h CUT di ~epoch 120
+- Full 250 step ≈ 64 min > **window turnamen 1.0h (60 min)**.
+- → di turnamen, run ke-cut sekitar **step ~235-240 = epoch ~118-120** SEBELUM nyampe 250.
+- **PERSIS cocok** sama checkpoint HF boss/5FW2 yg mentok `last-000120` (epoch 120). Konfirmasi: throughput H100 kita = throughput mereka, window naturally cap di epoch 120.
+
+### Implikasi buat run kita
+- Kita **gak kena window** (train lokal) → bisa full 250 atau lebih.
+- TAPI checkpoint juara 5FW2 = epoch ~120 (yg ke-save terakhir di-window). Strategi: train full ~250, save tiap 10 epoch (kurva), eval checkpoint sekitar epoch 100-120 (zona pemenang) + yg lebih tinggi (karena kita bebas window, bisa cek apakah >120 lebih bagus).
+
+## STATUS: FASE 5 GATE SELESAI — STOP. Throughput ~14.3s/it, full 250 ≈ 64 min. Nunggu go buat full train.
