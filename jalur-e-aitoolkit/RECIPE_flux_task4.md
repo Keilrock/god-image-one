@@ -77,7 +77,95 @@ LR, T5 LR, timestep sampling, discrete_flow_shift, guidance_scale, optimizer, at
 T5 + CLIP / 1024 single-res / ~120 step / window 1.0h). Yang BELUM pasti = LR, scheduler, timestep
 sampling, flow-shift, guidance, optimizer → ini yang harus diisi dari research komunitas sebelum train.
 
-## STATUS: FASE 1 SELESAI — STOP.
-Recipe struktural ke-extract & dikonfirmasi identik (5FW2==BOSS). Hyperparameter training di-strip dari
-header → next step = research komunitas kohya-flux buat ngisi LR/scheduler/flow-shift/guidance/optimizer,
-baru putusin config titik awal. JANGAN setup kohya / train dulu.
+## STATUS FASE 1: recipe struktural identik (5FW2==BOSS). Hyperparameter di-strip dari header → lanjut Fase 2 (source code).
+
+---
+---
+
+# FASE 2 — RECIPE FLUX LENGKAP DARI SOURCE CODE BOSS (bukan metadata!)
+
+Source asli boss position-1 (5GU4) PUBLIK & gak di-strip:
+`github.com/gradients-opensource/god-image-tourn-c43e1fc22c71be8f-20260618-position-1`
+
+## 🔑 Cara recipe Flux dirakit (dari `scripts/image_trainer.py`)
+1. Load template TOML: `scripts/core/config/base_diffusion_flux.toml` (semua default flux).
+2. Override per-base-model dari `scripts/lrs/flux.json`, keyed `sha256(model_name)`.
+3. **Base kita `mhnakif/fluxunchained-dev` → sha256 = `6445f395...` → override `{}` KOSONG.**
+   → **TEMPLATE = RECIPE VERBATIM. Gak ada override LR sama sekali buat base kita.**
+   (Override LR cuma kena base lain: 2 base dapet unet_lr 5e-5 / te 5e-6; satu dapet alpha 128 + 240 step. BUKAN base kita.)
+
+## 🎯 RECIPE FLUX #4 FINAL (template verbatim — yang boss & 5FW2 jalanin)
+
+### 1. Learning rate (train_t5xxl=True → 2 te_lr)
+| | value |
+|---|---|
+| **unet_lr** | **0.00008** (8e-5) |
+| **text_encoder_lr** | **[8e-6, 8e-6]** (CLIP-L, T5-XXL — dua-duanya 8e-6) |
+
+### 2. Optimizer + scheduler
+| | value |
+|---|---|
+| **optimizer_type** | **Lion** ⚠️ (BUKAN AdamW!) |
+| optimizer_args | weight_decay=0.005, betas=(0.9,0.99) |
+| lr_scheduler | cosine (num_cycles 1, power 1) |
+| **warmup** | **TIDAK ADA** (lr_warmup_steps unset = 0) |
+
+### 3. Timestep + flow + guidance (flux dev guidance-distilled)
+| | value |
+|---|---|
+| timestep_sampling | **sigmoid** |
+| discrete_flow_shift | **3.1582** |
+| **guidance_scale** | **85.0** ⚠️ (SANGAT tinggi — normal flux train ~1.0; ini di-feed beneran ke model, confirmed `flux_train_network.py:342`) |
+| model_prediction_type | raw |
+| max_timestep | 1000 |
+| loss_type | l2 (huber params ada tapi diabaikan krn l2) |
+| noise_offset_type | Original |
+
+### 4. Network args lengkap
+| | value |
+|---|---|
+| network_module | networks.lora_flux |
+| network_dim / network_alpha | **128 / 64** (rasio 0.5) |
+| network_args | train_double_block_indices=**all**, train_single_block_indices=**all**, train_t5xxl=**True** |
+| conv_dim / conv_alpha | **TIDAK ADA** (cuma SDXL pakai conv; flux pure linear LoRA) |
+| dropout | **TIDAK ADA** di network_args (yg muncul `dropout:null` di metadata = default kosong) |
+| apply_t5_attn_mask | **true** |
+| t5xxl_max_token_length | 512 |
+
+### 5. 🔴 Step / epoch (KOREKSI Fase 1!)
+| | value |
+|---|---|
+| **max_train_steps** | **250** (cap yg di-set) |
+| save_every_n_epochs | **10** (save by EPOCH, BUKAN step) |
+| DIFFUSION_FLUX_REPEATS | **1** (constants.py) |
+| train_batch_size / grad_accum | 4 / 2 → **eff batch 8** |
+| steps/epoch | 11 img × 1 rep / 8 = **~2 optimizer step/epoch** |
+| **`last-000120` artinya** | **EPOCH 120 ≈ ~240 optimizer step** (BUKAN 120 step! Fase 1 salah baca) |
+| efektif vs cap | epoch 120 (~240 step) ≈ mentok max_train_steps 250 (~epoch 125). Window 1.0h cut tipis di ujung / nyaris kelar. |
+| 12 checkpoint | epoch 10,20,…,120 (interval save 10 epoch) ✓ cocok sama yg di HF |
+
+### 6. Versi kohya / sd-scripts
+- Vendored di `scripts/sd-script/` (commit repo boss `fa6d8c08`, 2026-06-19). FLUX trainer = `flux_train_network.py` (punya `get_mod_vectors`, varian sd3/flux branch).
+- requirements: **accelerate 0.33.0, transformers 4.44.0, diffusers 0.25.0, safetensors 0.4.4, bitsandbytes 0.44.0, lion-pytorch 0.0.6** (Lion!), sentencepiece 0.2.0, `-e .` (editable kohya_ss).
+- ⚠️ Versi LAMA & beda total dari env ai-toolkit (torch 2.9/transformers 5.x). Flux butuh **environment terpisah** — pakai vendored sd-script langsung biar match.
+
+### Setting lain yang penting (template)
+- mixed_precision bf16, **full_bf16 true**, **save_precision float (fp32 → makanya tensor F32 3.47GB)**
+- **NO fp8_base** (fp8 gak dipakai; t5xxl pakai t5xxl_fp16.safetensors)
+- cache_latents + cache_latents_to_disk true, highvram true, gradient_checkpointing true, xformers true
+- resolution 1024,1024 (single-res); bucket: no_upscale, reso_steps 64, min 256 max 2048
+- **seed = 2** (template fixed — sama buat semua; jadi seed BUKAN pembeda 5FW2 vs boss)
+- caption_dropout_rate 0.1 (ditambah di image_trainer.py, bukan template)
+- caption_extension .txt, auto-caption mode "person" (flux selalu is_style=False di training_paths.py:46)
+- ae/clip_l/t5xxl/unet di-split file (bukan single checkpoint)
+
+## 🔑 IMPLIKASI: kenapa 5FW2 (0.0364) > boss (0.0372)?
+**Recipe IDENTIK total** — base sama (override kosong), template sama, **seed sama (2)**. Dua-duanya jalanin
+config yang sama persis. → Selisih 0.0364 vs 0.0372 (−1.9%) BUKAN dari recipe. Kemungkinan:
+- **Beda hardware/precision non-determinism** (bf16 + xformers + Lion = non-deterministic walau seed sama), ATAU
+- **beda titik cut window** (salah satu ke-cut di epoch beda, walau dua-duanya nyimpen sampe 120), ATAU
+- **noise eval 2-img held-out**.
+→ Praktis: **gak ada lever recipe yg bisa di-tweak dari data ini buat ngalahin boss** — recipe-nya udah identik.
+Titik awal = template verbatim. Improvement harus dari eksperimen (LR/flow-shift/step/guidance), bukan jiplak.
+
+## STATUS: FASE 2 SELESAI — recipe Flux LENGKAP ke-extract dari source. STOP, nunggu putusan strategi.
