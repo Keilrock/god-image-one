@@ -108,3 +108,35 @@ Eval checkpoint boss #6 (HF) + checkpoint AWAL kita, apple-to-apple per epoch.
 - C. Pilih best-early checkpoint kita (epoch ~25, 0.0557) = submission "aman" TAPI masih KALAH boss 0.0465 (−0%, kalah 20%). Belum cukup.
 
 ## STATUS B3: SELESAI — RECIPE-WRONG confirmed. Best kita 0.0557 vs boss 0.0465 (kalah ~20%). Network bukan lever. STOP, nunggu keputusan lever recipe (prodigy/bucket).
+
+---
+
+## FASE B4 — CEK SOURCE BOSS LEBIH DALAM → 🎯 AKAR KETEMU: caption_dropout_rate
+
+User minta cek source GitHub boss lengkap sebelum nebak lever. Template SDXL + resolve penuh.
+
+### Temuan
+1. `base_diffusion_sdxl_person.toml` boss == kita **IDENTIK** (byte-for-byte). Template bukan masalah.
+2. Resolve logo #6 = template person + lrs[anima]["s"] bucket + network[228] + **line 307: `config["caption_dropout_rate"] = 0.1`**.
+3. 🔴 **caption_dropout_rate di-OVERRIDE jadi 0.1 di AKHIR create_config (line 307)** — override template (yg =0). Gue kelewat karena build config MANUAL (pakai nilai template 0), bukan lewat pipeline image_trainer.py.
+
+### DIFF config efektif boss vs yg gue jalanin (H2)
+| key | BOSS-effective | GUE (ran) |
+|-----|----------------|-----------|
+| optimizer / d_coef / LR / epochs / batch / min_snr / network / seed / scheduler | (semua) | **IDENTIK** |
+| **caption_dropout_rate** | **0.1** | **0** 🔴 SATU-SATUNYA BEDA |
+
+### Kenapa ini AKAR-nya (cocok 100% sama gejala)
+- **cd=0 (gue)**: model overfit ke 18 caption training → generalisasi ke test caption JELEK → **text loss 0.088**, konvergen lambat & dangkal (best 0.0557).
+- **cd=0.1 (boss)**: 10% step caption di-drop → regularisasi text-conditioning → generalisasi bagus → **text loss 0.050**, konvergen cepat & dalam (epoch10=0.0456).
+- Gejala kita PERSIS = overfit caption (text-following ancur). caption_dropout = lever yg nyegah itu.
+
+### VERDICT: bukan lever tebakan — ini SETTING BOSS ASLI dari source yg gue lewat.
+Recipe boss-verbatim yg BENER = H2 + **caption_dropout_rate=0.1**. Belum di-train (per aturan STOP).
+Network (DoRA/conv) tetep irrelevant — fix = cd, bukan network.
+
+### NEXT (rekomендasi, nunggu Wen): 
+Re-train H2-corrected (plain LoRA 32/32 + **cd=0.1**, sisanya sama) → target reproduce boss ~0.0456 di epoch ~10.
+Kalau reproduce → baru cari edge buat NYALIP (mis. cd sweep, atau best-early-checkpoint pick kayak boss).
+
+## STATUS B4: AKAR KETEMU (caption_dropout 0.1, dari source). STOP, nunggu go re-train H2-corrected.
