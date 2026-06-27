@@ -66,3 +66,45 @@ noise_offset (none), caption_dropout (0), ema (none), min_snr beda. NAMUN: masal
 bukan kurang-regularisasi doang. Prioritas = cari kenapa text-following ancur (kemungkinan LR prodigy ketinggian / over-train), BUKAN tambah lever.
 
 ### STATUS B2: STOP — reproduksi gagal, network bukan lever. Butuh diagnosa akar (window-cut? LR? bucket?) sebelum lanjut. NUNGGU putusan Wen.
+
+---
+
+## FASE B3 — DIAGNOSTIK TRAJEKTORI BOSS (2026-06-27) → VERDICT: RECIPE-WRONG
+
+Eval checkpoint boss #6 (HF) + checkpoint AWAL kita, apple-to-apple per epoch.
+
+### Trajektori boss #6 vs kita (weighted, test 3 img master 42)
+| epoch | BOSS #6 | OUR H2 (plain=boss recipe) | OUR H1 (DoRA+conv) |
+|-------|---------|----------------------------|--------------------|
+| 5  | 0.06398 | 0.06310 | 0.06341 |
+| 10 | **0.04556** | 0.06129 | 0.05933 |
+| 15 | — | 0.05795 | 0.05582 |
+| 20 | 0.04650 | 0.05578 | ~0.0556 |
+| 25 | — | 0.05567 | 0.05569 |
+| 30 | 0.04940 | 0.05782 | 0.05607 |
+| 40 | 0.05528 | 0.06041 | 0.05828 |
+| **last (submit)** | **0.04652** | 0.06516 | 0.05927 |
+
+### 🔑 Temuan diagnostik
+1. **Boss OPTIMAL = epoch 10 (0.04556)**, lalu boss JUGA overfit (20→0.0465, 30→0.0494, 40→0.0553).
+2. **Boss "last.safetensors" (0.04652) = checkpoint TERPILIH miner (~epoch 10-20), BUKAN epoch 45.** Boss submit best-early, bukan final. (boss epoch40=0.0553 > boss last=0.0465 → "last" pasti checkpoint awal yg dipilih.)
+3. 🔴 **SAME-EPOCH: epoch 10 boss 0.04556 vs kita 0.0613 (H2) / 0.0593 (H1).** Di epoch 5 kita SAMA boss (~0.063), tapi boss LOMPAT konvergen epoch 5→10 (0.064→0.0456), kita MANDEK (0.063→0.061).
+4. **H1 ≈ H2 di semua epoch** → network (DoRA/conv) FINAL confirmed IRRELEVANT.
+5. Config kita jalan bener (log: prodigy d_coef1.1, 90 img, 12 batch/epoch, repeats5, safeguard_warmup) → recipe rekonstruksi dieksekusi faithful.
+
+### VERDICT DIAGNOSIS: **RECIPE-WRONG** (bukan window-cut, bukan checkpoint-selection)
+- ❌ Window-cut: boss punya ladder epoch 5-40 penuh + overfit sendiri → BUKAN ke-cut paksa.
+- ❌ Checkpoint-selection doang: kalau cuma itu, epoch-sama harusnya match. TAPI epoch 10 boss 0.0456 vs kita 0.061 → beda fundamental.
+- ✅ **RECIPE BEDA**: recipe boss yg sebenernya bikin konvergen CEPAT & DALAM (epoch10=0.0456). Recipe kita (rekonstruksi dari lrs GitHub) konvergen LAMBAT & DANGKAL (best ~0.0556). Boss's true LR/optimizer dynamics ≠ rekonstruksi kita — metadata boss DI-STRIP, jadi optimizer/LR/step asli boss GAK keliatan; rekonstruksi dari lrs jelas GAGAL reproduce.
+
+### Akar masalah (kandidat — buat keputusan Wen, JANGAN auto-train):
+- **Konvergensi 5→10 boss jauh lebih agresif** → effective LR boss di window itu LEBIH TINGGI. prodigy kita (safeguard_warmup + d_coef1.1) ramp kelambatan ATAU bukan yg boss pakai.
+- lrs "s" bucket (18img) mungkin BUKAN yg boss pakai buat #6 (kalau img-count efektif beda → bucket beda → LR/batch/epoch beda).
+- Metadata stripped → optimizer/LR/step boss = UNKNOWN. Rekonstruksi = inferensi, terbukti meleset.
+
+### Next (opsi, nunggu Wen):
+- A. Sweep prodigy d_coef lebih tinggi / warmup off → kejar konvergensi epoch-10 boss.
+- B. Cek bucket lain (xs: d_coef1.2 batch4 48ep) — mungkin #6 ke bucket beda.
+- C. Pilih best-early checkpoint kita (epoch ~25, 0.0557) = submission "aman" TAPI masih KALAH boss 0.0465 (−0%, kalah 20%). Belum cukup.
+
+## STATUS B3: SELESAI — RECIPE-WRONG confirmed. Best kita 0.0557 vs boss 0.0465 (kalah ~20%). Network bukan lever. STOP, nunggu keputusan lever recipe (prodigy/bucket).
