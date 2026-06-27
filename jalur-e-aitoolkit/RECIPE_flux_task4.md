@@ -169,3 +169,75 @@ config yang sama persis. → Selisih 0.0364 vs 0.0372 (−1.9%) BUKAN dari recip
 Titik awal = template verbatim. Improvement harus dari eksperimen (LR/flow-shift/step/guidance), bukan jiplak.
 
 ## STATUS: FASE 2 SELESAI — recipe Flux LENGKAP ke-extract dari source. STOP, nunggu putusan strategi.
+
+---
+---
+
+# FASE 3 — BANDING CONFIG FLUX: REPO KITA (jalur-e) vs BOSS
+
+Cek apakah config Flux di repo kita udah identik boss, atau ke-modif. NO train, analisis doang.
+
+## File config Flux di repo KITA (lokasi)
+| file | isi | status vs boss |
+|------|-----|----------------|
+| `scripts/core/config/base_diffusion_flux.toml` | template recipe flux | ✅ **IDENTIK boss** (byte-for-byte) |
+| `scripts/lrs/flux.json` | override LR per-base | 🔴 **BEDA di key `default`** (lihat bawah) |
+| `scripts/image_trainer.py` (flux apply-block L107) | `for k,v in lrs_settings: config[k]=v` | ✅ IDENTIK (perubahan dethrone cuma di SDXL/aitoolkit, flux gak kesentuh) |
+| `trainer/utils/training_paths.py` (flux→toml, L46) | routing flux + output/dataset path | ✅ IDENTIK (perubahan cuma Z/Qwen style-detect) |
+| `dockerfiles/standalone-image-trainer.dockerfile` | env kohya flux | ✅ IDENTIK (cuma +lycoris buat SDXL DoRA, gak ngaruh flux) |
+
+## 🔴 BEDA UTAMA: `flux.json` key `default`
+```
+KITA: "default": {"max_train_steps":1000,"network_dim":32,"network_alpha":32,"unet_lr":5e-5,
+                  "text_encoder_lr":[5e-6,5e-6],"lr_scheduler":"cosine","optimizer_type":"adamw",
+                  "optimizer_args":["weight_decay=0.01","betas=(0.9,0.99)","eps=1e-08"]}
+BOSS: "default": {}
+```
+`data` (per-base hash) IDENTIK dua repo. Bedanya cuma `default`.
+
+### 🔴🔴 EFEK ke base kita (`mhnakif/fluxunchained-dev`, hash `6445f395...`)
+Routing: `merge_model_config(default, data[hash])` = `{**default, **data[hash]}`. Base kita `data[hash]={}` (kosong)
+→ hasil merge = **`default` mentah**. Terus di create_config flux: `config[key]=value` buat tiap key → **OVERRIDE template**.
+
+- BOSS: `default={}` → merge `{}` → template TIDAK di-override → **recipe juara verbatim** (rank128/Lion/250).
+- KITA: `default={...}` → merge = default penuh → **template DI-HIJACK** → recipe beda jauh.
+
+## Tabel diff recipe Flux EFEKTIF (yg bener-bener jalan)
+| lever | BOSS = 5FW2 juara (0.0364) | KITA jalur-e (resolved) | beda? |
+|-------|---------------------------|--------------------------|-------|
+| network_module | networks.lora_flux | networks.lora_flux | sama |
+| **network_dim (rank)** | **128** | **32** | 🔴 ¼ rank |
+| **network_alpha** | **64** | **32** | 🔴 |
+| network_args (train_t5xxl, all blocks) | train all double+single, train_t5xxl=True | SAMA (dari template, gak di-override) | sama |
+| **optimizer_type** | **Lion** | **adamw** | 🔴 |
+| **optimizer_args** | wd 0.005, betas(0.9,0.99) | wd **0.01**, betas(0.9,0.99), **eps 1e-08** | 🔴 |
+| **unet_lr** | **8e-5** | **5e-5** | 🔴 |
+| **text_encoder_lr** | **[8e-6,8e-6]** | **[5e-6,5e-6]** | 🔴 |
+| lr_scheduler | cosine | cosine | sama |
+| warmup | none | none | sama |
+| timestep_sampling | sigmoid | sigmoid (template) | sama |
+| discrete_flow_shift | 3.1582 | 3.1582 (template) | sama |
+| guidance_scale | 85.0 | 85.0 (template) | sama |
+| model_prediction_type | raw | raw (template) | sama |
+| **max_train_steps** | **250** | **1000** | 🔴 4× |
+| save_every_n_epochs | 10 | 10 (template) | sama |
+| resolution / bf16 / full_bf16 / seed=2 | (template) | SAMA (template) | sama |
+| dataset path / output path | get_image_training_images_dir / get_checkpoints_output_path | IDENTIK | sama |
+
+## STATUS akhir: **(c→b) Infra/routing IDENTIK boss, TAPI recipe EFEKTIF BEDA JAUH**
+Bukan "default boss belum disesuaikan" — malah KEBALIKAN: repo kita **udah dimodif** (`flux.json default`,
+warisan dethrone jalur-b/d) ke recipe yg **BUKAN juara flux**. Kalau train flux #4 apa adanya SEKARANG →
+dapet **rank32 / adamw / 1000-step / lr5e-5**, BUKAN recipe juara 5FW2 (rank128 / Lion / 250-step / lr8e-5).
+Recipe efektif kita = generic SDXL-ish leftover, UNTESTED buat flux, jauh dari 0.0364.
+
+## ⚠️ YANG PERLU DIBENERIN SEBELUM TRAIN
+1. 🔴 **`scripts/lrs/flux.json` → set `"default": {}`** (samain boss). Ini bikin base kita resolve ke template
+   verbatim = recipe juara 5FW2. SATU baris ubahan, fix paling bersih.
+   - (Alternatif: hapus entry `6445f395` dari data — TAPI tetep butuh default={} biar fallback aman. Mending default={}.)
+2. Path/routing/output/dockerfile: GAK ada yg perlu dibenerin (udah identik boss).
+3. Setelah default={}: rank128/Lion/250/lr8e-5/guidance85/flow3.16 = baseline juara, baru eksperimen dari situ.
+
+Catatan: rank32/adamw/1000-step yg sekarang BUKAN strategi sengaja buat flux (flux belum digarap per SESSION_STATE)
+— ini murni leftover. Kecuali Wen sengaja mau coba recipe alternatif itu, harus di-revert ke template.
+
+## STATUS: FASE 3 SELESAI — STOP. JANGAN edit flux.json / train. Nunggu putusan Wen.
