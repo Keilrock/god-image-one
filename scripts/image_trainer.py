@@ -26,6 +26,7 @@ import core.constants as cst
 import trainer.constants as train_cst
 import trainer.utils.training_paths as train_paths
 from core.config.config_handler import save_config, save_config_toml
+from core.category_detector import detect_category, read_caption_texts  # [F2] scope recipe Qwen person
 from core.dataset.prepare_diffusion_dataset import prepare_dataset
 from core.models.utility_models import ImageModelType
 from auto_caption import auto_caption_dataset
@@ -293,13 +294,28 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
                     process['trigger_word'] = trigger_word
         
         
+        # --- [F2] kategori Qwen utk scope recipe MENANG person (EMA-off + steps=12*img + no caption_dropout) ---
+        # HANYA Qwen person yang kena. Qwen-art & Z TETAP pakai logika existing (EMA template + size-aware).
+        qwen_person = False
+        if model_type == ImageModelType.QWEN_IMAGE.value:
+            _qwen_caps = read_caption_texts(train_data_dir)
+            _qwen_category = detect_category(_qwen_caps, trigger_word)
+            qwen_person = (_qwen_category == "person")
+            print(f"[F2] Qwen category={_qwen_category} (person-scope={'ON' if qwen_person else 'OFF'}, "
+                  f"{len(_qwen_caps)} captions, trigger={trigger_word!r})", flush=True)
+
         # --- Jalur B: size-aware step untuk ai-toolkit (Z-Image/Qwen) ---
         ait_dataset_size = 0
         if os.path.exists(train_data_dir):
             ait_dataset_size = count_images_in_directory(train_data_dir)
         if ait_dataset_size > 0 and 'config' in config and 'process' in config['config']:
-            ait_max = 3000 if model_type == ImageModelType.QWEN_IMAGE.value else 2000
-            target_steps = compute_aitoolkit_steps(ait_dataset_size, max_steps=ait_max)
+            if qwen_person:
+                # [F2] recipe MENANG Qwen person: steps = 12 * jumlah_gambar (pemenang 108 = 12x9 img).
+                # NO floor/clamp (sementara; uji dataset besar nanti pas re-validate). BUKAN size-aware.
+                target_steps = 12 * ait_dataset_size
+            else:
+                ait_max = 3000 if model_type == ImageModelType.QWEN_IMAGE.value else 2000
+                target_steps = compute_aitoolkit_steps(ait_dataset_size, max_steps=ait_max)
             for process in config['config']['process']:
                 if 'train' in process and isinstance(process['train'], dict):
                     process['train']['steps'] = target_steps
@@ -307,8 +323,24 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
                     se = process['save'].get('save_every', 250)
                     if se > target_steps:
                         process['save']['save_every'] = max(target_steps // 4, 1)
-            print(f"[B] ai-toolkit size-aware: {ait_dataset_size} imgs -> {target_steps} steps", flush=True)
+            _tag = "F2 Qwen person 12*img" if qwen_person else "B size-aware"
+            print(f"[{_tag}] ai-toolkit: {ait_dataset_size} imgs -> {target_steps} steps", flush=True)
         # --- akhir Jalur B ---
+
+        # --- [F2] scope EMA-off + buang caption_dropout HANYA utk Qwen person ---
+        if qwen_person and 'config' in config and 'process' in config['config']:
+            for process in config['config']['process']:
+                tr = process.get('train')
+                if isinstance(tr, dict):
+                    ema = tr.get('ema_config')
+                    if isinstance(ema, dict):
+                        ema['use_ema'] = False           # recipe menang person = EMA OFF
+                    else:
+                        tr['ema_config'] = {'use_ema': False}
+                for ds in (process.get('datasets') or []):
+                    ds.pop('caption_dropout_rate', None)  # recipe menang TANPA cd (template paksa 0.05 -> skip)
+            print("[F2] Qwen person: EMA use_ema=false + caption_dropout dibuang (samain recipe menang 0.06825)", flush=True)
+        # --- akhir [F2] ---
 
         _apply_sweep_overrides_aitoolkit(config)   # [dethrone][SWEEP] opt-in env override (Z/Qwen)
 
