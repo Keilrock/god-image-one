@@ -294,23 +294,27 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
                     process['trigger_word'] = trigger_word
         
         
-        # --- [F2] kategori Qwen utk scope recipe MENANG person (EMA-off + steps=12*img + no caption_dropout) ---
-        # HANYA Qwen person yang kena. Qwen-art & Z TETAP pakai logika existing (EMA template + size-aware).
-        qwen_person = False
-        if model_type == ImageModelType.QWEN_IMAGE.value:
-            _qwen_caps = read_caption_texts(train_data_dir)
-            _qwen_category = detect_category(_qwen_caps, trigger_word)
-            qwen_person = (_qwen_category == "person")
-            print(f"[F2] Qwen category={_qwen_category} (person-scope={'ON' if qwen_person else 'OFF'}, "
-                  f"{len(_qwen_caps)} captions, trigger={trigger_word!r})", flush=True)
+        # --- [F2/F3] kategori ai-toolkit (Qwen + Z) utk scope recipe MENANG person ---
+        # Qwen person (F2): EMA-off + steps=12*img + no caption_dropout.
+        # Z person  (F3-rev): steps=12*img + no caption_dropout  (NO EMA -> Z emang gak pakai EMA).
+        # Pemenang 5FW2: Qwen person 108=12x9, Z person 168=12x14. Kategori lain (art/logo/social) & SDXL/Flux UTUH.
+        ait_category = None
+        if model_type in (ImageModelType.QWEN_IMAGE.value, ImageModelType.Z_IMAGE.value):
+            _ait_caps = read_caption_texts(train_data_dir)
+            ait_category = detect_category(_ait_caps, trigger_word)
+            print(f"[F2/F3] {model_type} category={ait_category} "
+                  f"({len(_ait_caps)} captions, trigger={trigger_word!r})", flush=True)
+        qwen_person = (model_type == ImageModelType.QWEN_IMAGE.value and ait_category == "person")
+        z_person = (model_type == ImageModelType.Z_IMAGE.value and ait_category == "person")
+        person_12ximg = qwen_person or z_person   # dua-duanya: steps=12*img + buang caption_dropout
 
         # --- Jalur B: size-aware step untuk ai-toolkit (Z-Image/Qwen) ---
         ait_dataset_size = 0
         if os.path.exists(train_data_dir):
             ait_dataset_size = count_images_in_directory(train_data_dir)
         if ait_dataset_size > 0 and 'config' in config and 'process' in config['config']:
-            if qwen_person:
-                # [F2] recipe MENANG Qwen person: steps = 12 * jumlah_gambar (pemenang 108 = 12x9 img).
+            if person_12ximg:
+                # recipe MENANG person: steps = 12 * jumlah_gambar (Qwen 108=12x9, Z 168=12x14).
                 # NO floor/clamp (sementara; uji dataset besar nanti pas re-validate). BUKAN size-aware.
                 target_steps = 12 * ait_dataset_size
             else:
@@ -323,24 +327,28 @@ def create_config(task_id, model_path, model_name, model_type, expected_repo_nam
                     se = process['save'].get('save_every', 250)
                     if se > target_steps:
                         process['save']['save_every'] = max(target_steps // 4, 1)
-            _tag = "F2 Qwen person 12*img" if qwen_person else "B size-aware"
+            _tag = (f"{'Qwen' if qwen_person else 'Z'} person 12*img") if person_12ximg else "B size-aware"
             print(f"[{_tag}] ai-toolkit: {ait_dataset_size} imgs -> {target_steps} steps", flush=True)
         # --- akhir Jalur B ---
 
-        # --- [F2] scope EMA-off + buang caption_dropout HANYA utk Qwen person ---
-        if qwen_person and 'config' in config and 'process' in config['config']:
+        # --- [F2/F3] buang caption_dropout utk person (Qwen + Z); EMA-off HANYA Qwen ---
+        if person_12ximg and 'config' in config and 'process' in config['config']:
             for process in config['config']['process']:
                 tr = process.get('train')
-                if isinstance(tr, dict):
+                if isinstance(tr, dict) and qwen_person:
+                    # EMA-off CUMA Qwen (pemenang 0.06825). Z pemenang NO-EMA bawaan -> JANGAN set apa2.
                     ema = tr.get('ema_config')
                     if isinstance(ema, dict):
-                        ema['use_ema'] = False           # recipe menang person = EMA OFF
+                        ema['use_ema'] = False
                     else:
                         tr['ema_config'] = {'use_ema': False}
                 for ds in (process.get('datasets') or []):
-                    ds.pop('caption_dropout_rate', None)  # recipe menang TANPA cd (template paksa 0.05 -> skip)
-            print("[F2] Qwen person: EMA use_ema=false + caption_dropout dibuang (samain recipe menang 0.06825)", flush=True)
-        # --- akhir [F2] ---
+                    ds.pop('caption_dropout_rate', None)  # pemenang person TANPA cd (template paksa 0.05 -> skip)
+            if qwen_person:
+                print("[F2] Qwen person: EMA use_ema=false + caption_dropout dibuang (recipe menang 0.06825)", flush=True)
+            else:
+                print("[F3] Z person: caption_dropout dibuang (recipe menang 5FW2; EMA tetap none, network utuh)", flush=True)
+        # --- akhir [F2/F3] ---
 
         _apply_sweep_overrides_aitoolkit(config)   # [dethrone][SWEEP] opt-in env override (Z/Qwen)
 
